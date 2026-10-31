@@ -986,3 +986,15 @@ private fun formatDuration(millis: Long): String {
         String.format("%02d:%02d", minutes, seconds)
     }
 }
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+
+fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
+}
