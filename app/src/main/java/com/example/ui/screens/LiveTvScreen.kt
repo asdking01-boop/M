@@ -14,11 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -31,87 +31,59 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.Channel
+import androidx.paging.LoadState
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
+import com.example.data.model.LiveChannelItem
 import com.example.localization.LocalKrasStrings
 import com.example.ui.components.ChannelItemCard
-import com.example.ui.glass.GlassBadge
+import com.example.ui.components.LiquidGlassButton
+import com.example.ui.glass.glassBackground
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
 import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
 
 @Composable
 fun LiveTvScreen(
-    channels: List<Channel>,
-    onChannelClick: (Channel) -> Unit,
-    onToggleFavorite: (Channel) -> Unit,
+    categories: List<String>,
+    getChannelsPager: (category: String, query: String) -> Flow<PagingData<LiveChannelItem>>,
+    onChannelClick: (LiveChannelItem) -> Unit,
+    onToggleFavorite: (LiveChannelItem) -> Unit,
     isFavorite: (String) -> Boolean,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalKrasStrings.current
-
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Dynamic categories extraction
-    val dynamicCategories = remember(channels) {
-        val groups = channels.map { it.category }.distinct().filter { it.isNotBlank() }
-        listOf(strings.allChannels) + groups
+    val allCategoryLabel = strings.allChannels
+    val fullCategories = remember(categories, allCategoryLabel) {
+        listOf(allCategoryLabel) + categories.filter { it.isNotBlank() && it != allCategoryLabel }
     }
 
-    val selectedCategory = dynamicCategories.getOrNull(selectedCategoryIndex) ?: strings.allChannels
+    val selectedCategory = fullCategories.getOrNull(selectedCategoryIndex) ?: allCategoryLabel
+    val categoryQueryParam = if (selectedCategoryIndex == 0) "" else selectedCategory
 
-    // Efficient memoized filtering of channels for large datasets (10,000+ items)
-    val filteredChannels = remember(channels, selectedCategoryIndex, selectedCategory, searchQuery) {
-        channels.filter { ch ->
-            val matchesCategory = selectedCategoryIndex == 0 || ch.category.equals(selectedCategory, ignoreCase = true)
-            val matchesSearch = searchQuery.isBlank() ||
-                    ch.name.contains(searchQuery, ignoreCase = true) ||
-                    ch.category.contains(searchQuery, ignoreCase = true)
-            matchesCategory && matchesSearch
-        }
+    val pagedFlow = remember(categoryQueryParam, searchQuery) {
+        getChannelsPager(categoryQueryParam, searchQuery)
     }
-
-    // Incremental pagination: start with initial window and expand as user scrolls
-    var displayedCount by remember(selectedCategoryIndex, searchQuery) { mutableIntStateOf(60) }
+    val lazyChannels = pagedFlow.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
-
-    // Detect when user approaches the end of loaded items and load more incrementally
-    LaunchedEffect(listState, filteredChannels.size) {
-        snapshotFlow {
-            val totalItems = listState.layoutInfo.totalItemsCount
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            lastVisible to totalItems
-        }.distinctUntilChanged().collect { (lastVisible, totalItems) ->
-            if (totalItems > 0 && lastVisible >= totalItems - 15 && displayedCount < filteredChannels.size) {
-                displayedCount = (displayedCount + 60).coerceAtMost(filteredChannels.size)
-            }
-        }
-    }
-
-    val visibleChannels = remember(filteredChannels, displayedCount) {
-        if (displayedCount >= filteredChannels.size) {
-            filteredChannels
-        } else {
-            filteredChannels.subList(0, displayedCount)
-        }
-    }
 
     Column(
         modifier = modifier
@@ -129,7 +101,7 @@ fun LiveTvScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        text = "${strings.searchChannels} (${channels.size})",
+                        text = strings.searchChannels,
                         color = TextSecondary,
                         fontSize = 13.sp
                     )
@@ -145,117 +117,159 @@ fun LiveTvScreen(
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = TextSecondary)
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0x331E222B),
-                    unfocusedContainerColor = Color(0x221E222B),
-                    focusedBorderColor = KrasRed,
-                    unfocusedBorderColor = GlassWhiteStroke.copy(alpha = 0.2f),
+                    focusedContainerColor = Color(0x3312151D),
+                    unfocusedContainerColor = Color(0x2212151D),
+                    focusedBorderColor = KrasRedBright,
+                    unfocusedBorderColor = GlassWhiteStroke,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary
-                )
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Category Tabs with channel counts
-        ScrollableTabRow(
-            selectedTabIndex = selectedCategoryIndex,
-            containerColor = Color.Transparent,
-            contentColor = KrasRedBright,
-            edgePadding = 16.dp,
-            indicator = { tabPositions ->
-                if (selectedCategoryIndex < tabPositions.size) {
+        // Categories Tab Row
+        if (fullCategories.size > 1) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedCategoryIndex.coerceIn(0, fullCategories.size - 1),
+                containerColor = Color.Transparent,
+                contentColor = KrasRedBright,
+                edgePadding = 16.dp,
+                indicator = { tabPositions ->
+                    val validIndex = selectedCategoryIndex.coerceIn(0, tabPositions.size - 1)
                     TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[selectedCategoryIndex]),
+                        Modifier.tabIndicatorOffset(tabPositions[validIndex]),
                         color = KrasRedBright
                     )
+                },
+                divider = {}
+            ) {
+                fullCategories.forEachIndexed { index, catName ->
+                    Tab(
+                        selected = selectedCategoryIndex == index,
+                        onClick = { selectedCategoryIndex = index },
+                        text = {
+                            Text(
+                                text = catName,
+                                fontSize = 13.sp,
+                                fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selectedCategoryIndex == index) KrasRedBright else TextSecondary
+                            )
+                        }
+                    )
                 }
-            }
-        ) {
-            dynamicCategories.forEachIndexed { index, categoryName ->
-                Tab(
-                    selected = selectedCategoryIndex == index,
-                    onClick = { selectedCategoryIndex = index },
-                    text = {
-                        Text(
-                            text = categoryName,
-                            fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedCategoryIndex == index) TextPrimary else TextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-                )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Channels List with incremental loading
-        if (filteredChannels.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = strings.noSearchResults,
-                    color = TextSecondary,
-                    fontSize = 15.sp
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(visibleChannels, key = { it.id }) { channel ->
-                    ChannelItemCard(
-                        channel = channel,
-                        onClick = { onChannelClick(channel) },
-                        onFavoriteClick = { onToggleFavorite(channel) },
-                        isFavorite = isFavorite(channel.id)
-                    )
-                }
-
-                // Incremental loader footer when more items are being revealed
-                if (displayedCount < filteredChannels.size) {
-                    item(key = "loader_footer") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = KrasRedBright,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.size(10.dp))
-                                Text(
-                                    text = "${visibleChannels.size} / ${filteredChannels.size}",
-                                    color = TextSecondary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
+        // Paged channels list
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                lazyChannels.loadState.refresh is LoadState.Loading && lazyChannels.itemCount == 0 -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = KrasRedBright,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = strings.loading,
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
                     }
                 }
 
-                item(key = "bottom_spacer") {
-                    Spacer(modifier = Modifier.height(80.dp))
+                lazyChannels.loadState.refresh is LoadState.Error && lazyChannels.itemCount == 0 -> {
+                    val error = (lazyChannels.loadState.refresh as LoadState.Error).error
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = error.localizedMessage ?: "Error loading channels",
+                            color = KrasRedBright,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LiquidGlassButton(
+                            text = strings.retry,
+                            icon = Icons.Default.Refresh,
+                            isPrimary = true,
+                            onClick = { lazyChannels.retry() }
+                        )
+                    }
+                }
+
+                lazyChannels.itemCount == 0 && lazyChannels.loadState.refresh is LoadState.NotLoading -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = strings.noChannelsFound,
+                            color = TextSecondary,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(
+                            count = lazyChannels.itemCount,
+                            key = { index -> lazyChannels.peek(index)?.id ?: "ch_$index" }
+                        ) { index ->
+                            val channel = lazyChannels[index]
+                            if (channel != null) {
+                                ChannelItemCard(
+                                    channel = channel,
+                                    onClick = { onChannelClick(channel) },
+                                    onFavoriteClick = { onToggleFavorite(channel) },
+                                    isFavorite = isFavorite(channel.id)
+                                )
+                            }
+                        }
+
+                        if (lazyChannels.loadState.append is LoadState.Loading) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = KrasRedBright,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

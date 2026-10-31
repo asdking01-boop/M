@@ -1,24 +1,27 @@
 package com.example.data.remote
 
-import com.example.data.model.Channel
+import android.util.JsonReader
+import android.util.JsonToken
 import com.example.data.model.Episode
-import com.example.data.model.EpgProgram
+import com.example.data.model.LiveChannelItem
 import com.example.data.model.Season
-import com.example.data.model.Series
-import com.example.data.model.VodMovie
+import com.example.data.model.SeriesItem
+import com.example.data.model.VodMovieItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 class XtreamCodesService {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -34,15 +37,35 @@ class XtreamCodesService {
             val request = Request.Builder().url(authUrl).build()
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("HTTP error ${response.code}"))
+                return@withContext Result.failure(Exception("HTTP error ${response.code}: ${response.message}"))
             }
 
-            val body = response.body?.string() ?: ""
-            val json = JSONObject(body)
-            val userInfo = json.optJSONObject("user_info")
-            val authStatus = userInfo?.optString("auth")
-            if (authStatus == "0") {
-                return@withContext Result.failure(Exception("Invalid username or password"))
+            // Stream user_info without holding entire response in memory
+            response.body?.use { body ->
+                val reader = JsonReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
+                var authStatus = ""
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    if (name == "user_info" && reader.peek() == JsonToken.BEGIN_OBJECT) {
+                        reader.beginObject()
+                        while (reader.hasNext()) {
+                            if (reader.nextName() == "auth") {
+                                authStatus = if (reader.peek() == JsonToken.STRING) reader.nextString() else reader.nextInt().toString()
+                            } else {
+                                reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+                    } else {
+                        reader.skipValue()
+                    }
+                }
+                reader.endObject()
+
+                if (authStatus == "0") {
+                    return@withContext Result.failure(Exception("Invalid username or password"))
+                }
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -51,188 +74,444 @@ class XtreamCodesService {
     }
 
     /**
-     * Fetches ALL live streams with separate request.
-     * Supports pagination if enabled by server, and removes all hardcoded limits.
-     * Fault-tolerant: errors in individual items will never halt parsing of the remaining items.
+     * Streams Live Channels using JsonReader without buffering the entire JSON array in memory.
+     * Emits items in batches of 500 to onBatch.
      */
-    suspend fun fetchLiveStreams(
+    suspend fun streamLiveChannels(
         serverUrl: String,
         user: String,
-        pass: String
-    ): Result<List<Channel>> = withContext(Dispatchers.IO) {
+        pass: String,
+        accountId: Long,
+        onBatch: suspend (List<LiveChannelItem>) -> Unit
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        var totalCount = 0
         try {
             val cleanServer = serverUrl.trimEnd('/')
             val baseUrl = "$cleanServer/player_api.php?username=$user&password=$pass&action=get_live_streams"
-            val channels = ArrayList<Channel>()
 
-            val allItems = fetchWithPaginationSupport(baseUrl)
-            for (i in 0 until allItems.length()) {
-                try {
-                    val obj = allItems.getJSONObject(i)
-                    val streamId = obj.optString("stream_id").ifEmpty {
-                        obj.optInt("stream_id", i + 1).toString()
-                    }
-                    val name = obj.optString("name").ifEmpty { "Channel $streamId" }
-                    val streamIcon = obj.optString("stream_icon")
-                    val categoryName = obj.optString("category_name").ifEmpty {
-                        val categoryId = obj.optString("category_id")
-                        if (categoryId.isNotEmpty()) "Category $categoryId" else "General"
-                    }
-                    val streamUrl = "$cleanServer/live/$user/$pass/$streamId.m3u8"
+            val request = Request.Builder().url(baseUrl).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("HTTP error ${response.code} fetching live streams"))
+            }
 
-                    channels.add(
-                        Channel(
-                            id = "xtream_ch_$streamId",
-                            streamId = streamId,
-                            name = name,
-                            streamUrl = streamUrl,
-                            logoUrl = streamIcon,
-                            category = categoryName,
-                            channelNum = streamId,
-                            currentProgram = EpgProgram(
-                                title = "Live: $name",
-                                description = "Live transmission stream",
-                                startTime = "Current",
-                                endTime = "Live"
+            response.body?.use { body ->
+                val reader = JsonReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
+                if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+                    return@withContext Result.success(0)
+                }
+
+                reader.beginArray()
+                val batch = ArrayList<LiveChannelItem>(500)
+
+                while (reader.hasNext()) {
+                    try {
+                        reader.beginObject()
+                        var streamId = ""
+                        var name = ""
+                        var icon = ""
+                        var category = ""
+
+                        while (reader.hasNext()) {
+                            when (reader.nextName()) {
+                                "stream_id" -> streamId = nextSafeString(reader)
+                                "name" -> name = nextSafeString(reader)
+                                "stream_icon" -> icon = nextSafeString(reader)
+                                "category_name" -> category = nextSafeString(reader)
+                                "category_id" -> if (category.isEmpty()) category = "Category " + nextSafeString(reader) else reader.skipValue()
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+
+                        if (streamId.isNotEmpty() || name.isNotEmpty()) {
+                            val finalId = streamId.ifEmpty { (totalCount + 1).toString() }
+                            val channel = LiveChannelItem(
+                                id = "xtream_ch_${accountId}_$finalId",
+                                accountId = accountId,
+                                streamId = finalId,
+                                name = name.ifEmpty { "Channel $finalId" },
+                                streamUrl = "$cleanServer/live/$user/$pass/$finalId.m3u8",
+                                logoUrl = icon,
+                                category = category.ifEmpty { "General" },
+                                channelNum = finalId
                             )
-                        )
-                    )
-                } catch (_: Exception) {
-                    // Skip corrupt item and keep parsing all other channels
+                            batch.add(channel)
+                            totalCount++
+
+                            if (batch.size >= 500) {
+                                onBatch(ArrayList(batch))
+                                batch.clear()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        skipToNextObject(reader)
+                    }
+                }
+                reader.endArray()
+
+                if (batch.isNotEmpty()) {
+                    onBatch(batch)
+                    batch.clear()
                 }
             }
 
-            Result.success(channels)
+            Result.success(totalCount)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Fetches ALL VOD movies with separate request.
-     * Supports pagination if present, and removes all hardcoded limits.
+     * Streams VOD Movies using JsonReader in batches of 500 without buffering the whole response into memory.
      */
-    suspend fun fetchVodStreams(
+    suspend fun streamVodMovies(
         serverUrl: String,
         user: String,
-        pass: String
-    ): Result<List<VodMovie>> = withContext(Dispatchers.IO) {
+        pass: String,
+        accountId: Long,
+        onBatch: suspend (List<VodMovieItem>) -> Unit
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        var totalCount = 0
         try {
             val cleanServer = serverUrl.trimEnd('/')
             val baseUrl = "$cleanServer/player_api.php?username=$user&password=$pass&action=get_vod_streams"
-            val movies = ArrayList<VodMovie>()
 
-            val allItems = fetchWithPaginationSupport(baseUrl)
-            for (i in 0 until allItems.length()) {
-                try {
-                    val obj = allItems.getJSONObject(i)
-                    val streamId = obj.optString("stream_id").ifEmpty {
-                        obj.optInt("stream_id", i + 1).toString()
-                    }
-                    val name = obj.optString("name").ifEmpty { "Movie $streamId" }
-                    val icon = obj.optString("stream_icon")
-                    val ext = obj.optString("container_extension").ifEmpty { "mp4" }
-                    val rating = obj.optString("rating").ifEmpty {
-                        obj.optDouble("rating_5based", 8.0).times(2.0).toString()
-                    }
-                    val categoryName = obj.optString("category_name").ifEmpty {
-                        val categoryId = obj.optString("category_id")
-                        if (categoryId.isNotEmpty()) "VOD $categoryId" else "Movies"
-                    }
-                    val streamUrl = "$cleanServer/movie/$user/$pass/$streamId.$ext"
+            val request = Request.Builder().url(baseUrl).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("HTTP error ${response.code} fetching movies"))
+            }
 
-                    movies.add(
-                        VodMovie(
-                            id = "xtream_mov_$streamId",
-                            streamId = streamId,
-                            title = name,
-                            streamUrl = streamUrl,
-                            posterUrl = icon,
-                            backdropUrl = icon,
-                            genre = categoryName,
-                            year = "2024",
-                            rating = rating.take(3),
-                            description = "Available on Xtream VOD ($categoryName)"
-                        )
-                    )
-                } catch (_: Exception) {
-                    // Skip corrupt item and continue
+            response.body?.use { body ->
+                val reader = JsonReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
+                if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+                    return@withContext Result.success(0)
+                }
+
+                reader.beginArray()
+                val batch = ArrayList<VodMovieItem>(500)
+
+                while (reader.hasNext()) {
+                    try {
+                        reader.beginObject()
+                        var streamId = ""
+                        var name = ""
+                        var icon = ""
+                        var ext = "mp4"
+                        var category = ""
+                        var rating = "8.0"
+
+                        while (reader.hasNext()) {
+                            when (reader.nextName()) {
+                                "stream_id" -> streamId = nextSafeString(reader)
+                                "name" -> name = nextSafeString(reader)
+                                "stream_icon" -> icon = nextSafeString(reader)
+                                "container_extension" -> ext = nextSafeString(reader).ifEmpty { "mp4" }
+                                "rating" -> rating = nextSafeString(reader).ifEmpty { "8.0" }
+                                "category_name" -> category = nextSafeString(reader)
+                                "category_id" -> if (category.isEmpty()) category = "VOD " + nextSafeString(reader) else reader.skipValue()
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+
+                        if (streamId.isNotEmpty() || name.isNotEmpty()) {
+                            val finalId = streamId.ifEmpty { (totalCount + 1).toString() }
+                            val movie = VodMovieItem(
+                                id = "xtream_mov_${accountId}_$finalId",
+                                accountId = accountId,
+                                streamId = finalId,
+                                title = name.ifEmpty { "Movie $finalId" },
+                                streamUrl = "$cleanServer/movie/$user/$pass/$finalId.$ext",
+                                posterUrl = icon,
+                                genre = category.ifEmpty { "Movies" },
+                                year = "2024",
+                                rating = rating.take(3)
+                            )
+                            batch.add(movie)
+                            totalCount++
+
+                            if (batch.size >= 500) {
+                                onBatch(ArrayList(batch))
+                                batch.clear()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        skipToNextObject(reader)
+                    }
+                }
+                reader.endArray()
+
+                if (batch.isNotEmpty()) {
+                    onBatch(batch)
+                    batch.clear()
                 }
             }
 
-            Result.success(movies)
+            Result.success(totalCount)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Fetches ALL series with separate request (action=get_series).
-     * Supports pagination if enabled, and removes all limits so 10,000+ series can be loaded.
+     * Streams Series using JsonReader in batches of 500.
      */
-    suspend fun fetchSeries(
+    suspend fun streamSeries(
         serverUrl: String,
         user: String,
-        pass: String
-    ): Result<List<Series>> = withContext(Dispatchers.IO) {
+        pass: String,
+        accountId: Long,
+        onBatch: suspend (List<SeriesItem>) -> Unit
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        var totalCount = 0
         try {
             val cleanServer = serverUrl.trimEnd('/')
             val baseUrl = "$cleanServer/player_api.php?username=$user&password=$pass&action=get_series"
-            val seriesList = ArrayList<Series>()
 
-            val allItems = fetchWithPaginationSupport(baseUrl)
-            for (i in 0 until allItems.length()) {
-                try {
-                    val obj = allItems.getJSONObject(i)
-                    val seriesId = obj.optString("series_id").ifEmpty {
-                        obj.optInt("series_id", i + 1).toString()
+            val request = Request.Builder().url(baseUrl).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("HTTP error ${response.code} fetching series"))
+            }
+
+            response.body?.use { body ->
+                val reader = JsonReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
+                if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+                    return@withContext Result.success(0)
+                }
+
+                reader.beginArray()
+                val batch = ArrayList<SeriesItem>(500)
+
+                while (reader.hasNext()) {
+                    try {
+                        reader.beginObject()
+                        var seriesId = ""
+                        var name = ""
+                        var cover = ""
+                        var genre = ""
+                        var releaseDate = ""
+                        var rating = "8.5"
+
+                        while (reader.hasNext()) {
+                            when (reader.nextName()) {
+                                "series_id" -> seriesId = nextSafeString(reader)
+                                "name" -> name = nextSafeString(reader)
+                                "cover" -> cover = nextSafeString(reader)
+                                "genre" -> genre = nextSafeString(reader)
+                                "releaseDate" -> releaseDate = nextSafeString(reader)
+                                "rating" -> rating = nextSafeString(reader).ifEmpty { "8.5" }
+                                "category_name" -> if (genre.isEmpty()) genre = nextSafeString(reader) else reader.skipValue()
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+
+                        if (seriesId.isNotEmpty() || name.isNotEmpty()) {
+                            val finalId = seriesId.ifEmpty { (totalCount + 1).toString() }
+                            val year = if (releaseDate.length >= 4) releaseDate.substring(0, 4) else "2024"
+
+                            val series = SeriesItem(
+                                id = "xtream_ser_${accountId}_$finalId",
+                                accountId = accountId,
+                                seriesId = finalId,
+                                title = name.ifEmpty { "Series $finalId" },
+                                posterUrl = cover,
+                                genre = genre.ifEmpty { "Series" },
+                                year = year,
+                                rating = rating.take(3)
+                            )
+                            batch.add(series)
+                            totalCount++
+
+                            if (batch.size >= 500) {
+                                onBatch(ArrayList(batch))
+                                batch.clear()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        skipToNextObject(reader)
                     }
-                    val name = obj.optString("name").ifEmpty { "Series $seriesId" }
-                    val cover = obj.optString("cover")
-                    val plot = obj.optString("plot")
-                    val genre = obj.optString("genre").ifEmpty {
-                        val cat = obj.optString("category_name")
-                        if (cat.isNotEmpty()) cat else "Series"
-                    }
-                    val releaseDate = obj.optString("releaseDate")
-                    val year = if (releaseDate.length >= 4) releaseDate.substring(0, 4) else "2024"
-                    val rating = obj.optString("rating").ifEmpty { "8.5" }
+                }
+                reader.endArray()
 
-                    // Initial default season for series until user clicks to fetch detailed episode breakdown
-                    val defaultSeason = Season(
-                        seasonNum = 1,
-                        title = "Season 1",
-                        episodes = emptyList()
-                    )
-
-                    seriesList.add(
-                        Series(
-                            id = "xtream_ser_$seriesId",
-                            seriesId = seriesId,
-                            title = name,
-                            posterUrl = cover,
-                            backdropUrl = cover,
-                            genre = genre,
-                            year = year,
-                            rating = rating.take(3),
-                            description = plot.ifEmpty { "Series streamed via Xtream Codes" },
-                            seasons = listOf(defaultSeason)
-                        )
-                    )
-                } catch (_: Exception) {
-                    // Skip corrupt item
+                if (batch.isNotEmpty()) {
+                    onBatch(batch)
+                    batch.clear()
                 }
             }
 
-            Result.success(seriesList)
+            Result.success(totalCount)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Fetches detailed seasons and episodes for a specific series from Xtream Codes.
-     * action=get_series_info&series_id=...
+     * Streams an M3U playlist file line by line without holding the entire file in RAM.
+     * Inserts into Room in batches of 500.
+     */
+    suspend fun streamM3u(
+        url: String,
+        accountId: Long,
+        onChannelBatch: suspend (List<LiveChannelItem>) -> Unit,
+        onMovieBatch: suspend (List<VodMovieItem>) -> Unit,
+        onSeriesBatch: suspend (List<SeriesItem>) -> Unit
+    ): Result<Triple<Int, Int, Int>> = withContext(Dispatchers.IO) {
+        var chanCount = 0
+        var movCount = 0
+        var serCount = 0
+
+        try {
+            val request = Request.Builder().url(url).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("HTTP error ${response.code} downloading M3U"))
+            }
+
+            response.body?.use { body ->
+                val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8), 32 * 1024)
+                val chanBatch = ArrayList<LiveChannelItem>(500)
+                val movBatch = ArrayList<VodMovieItem>(500)
+                val serBatch = ArrayList<SeriesItem>(500)
+                val knownSeriesTitles = HashSet<String>()
+
+                var currentExtInf = ""
+                var line = reader.readLine()
+                var counter = 1
+
+                val seasonEpisodeRegex = Regex(
+                    """(?:[Ss](\d{1,2})[\s._-]*[Ee](\d{1,2})|[Ss]eason[\s._-]*(\d{1,2})[\s._-]*[Ee]pisode[\s._-]*(\d{1,2})|الموسم[\s._-]*(\d{1,2})[\s._-]*الحلقة[\s._-]*(\d{1,2}))""",
+                    RegexOption.IGNORE_CASE
+                )
+
+                while (line != null) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
+                        currentExtInf = trimmed
+                    } else if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && currentExtInf.isNotEmpty()) {
+                        val streamUrl = trimmed
+                        val name = extractAttribute(currentExtInf, "tvg-name").ifEmpty {
+                            extractName(currentExtInf)
+                        }.ifEmpty { "Item $counter" }
+                        val logo = extractAttribute(currentExtInf, "tvg-logo")
+                        val group = extractAttribute(currentExtInf, "group-title").ifEmpty { "General" }
+                        val tvgId = extractAttribute(currentExtInf, "tvg-id")
+
+                        val isSeriesGroup = group.contains("series", ignoreCase = true) ||
+                                group.contains("serie", ignoreCase = true) ||
+                                group.contains("مسلسل", ignoreCase = true) ||
+                                streamUrl.contains("/series/", ignoreCase = true)
+
+                        val seasonMatch = seasonEpisodeRegex.find(name) ?: seasonEpisodeRegex.find(streamUrl)
+
+                        if (isSeriesGroup || seasonMatch != null) {
+                            val cleanSeriesTitle = if (seasonMatch != null) {
+                                name.substring(0, seasonMatch.range.first).trim().trimEnd('-', ':', '|', ' ')
+                                    .ifEmpty { name }
+                            } else name
+
+                            if (knownSeriesTitles.add(cleanSeriesTitle)) {
+                                val sId = "m3u_ser_${accountId}_${cleanSeriesTitle.hashCode().coerceAtLeast(0)}"
+                                serBatch.add(
+                                    SeriesItem(
+                                        id = sId,
+                                        accountId = accountId,
+                                        seriesId = sId,
+                                        title = cleanSeriesTitle,
+                                        posterUrl = logo,
+                                        genre = group,
+                                        year = "2024",
+                                        rating = "8.5"
+                                    )
+                                )
+                                serCount++
+                                if (serBatch.size >= 500) {
+                                    onSeriesBatch(ArrayList(serBatch))
+                                    serBatch.clear()
+                                }
+                            }
+                        } else {
+                            val isMovie = group.contains("movie", ignoreCase = true) ||
+                                    group.contains("vod", ignoreCase = true) ||
+                                    group.contains("فيلم", ignoreCase = true) ||
+                                    group.contains("افلام", ignoreCase = true) ||
+                                    streamUrl.contains("/movie/", ignoreCase = true) ||
+                                    streamUrl.endsWith(".mp4", ignoreCase = true) ||
+                                    streamUrl.endsWith(".mkv", ignoreCase = true)
+
+                            if (isMovie) {
+                                val mId = "m3u_mov_${accountId}_$counter"
+                                movBatch.add(
+                                    VodMovieItem(
+                                        id = mId,
+                                        accountId = accountId,
+                                        streamId = counter.toString(),
+                                        title = name,
+                                        streamUrl = streamUrl,
+                                        posterUrl = logo,
+                                        genre = group,
+                                        year = "2024",
+                                        rating = "8.0"
+                                    )
+                                )
+                                movCount++
+                                if (movBatch.size >= 500) {
+                                    onMovieBatch(ArrayList(movBatch))
+                                    movBatch.clear()
+                                }
+                            } else {
+                                val cId = "m3u_ch_${accountId}_$counter"
+                                chanBatch.add(
+                                    LiveChannelItem(
+                                        id = cId,
+                                        accountId = accountId,
+                                        streamId = tvgId.ifEmpty { counter.toString() },
+                                        name = name,
+                                        streamUrl = streamUrl,
+                                        logoUrl = logo,
+                                        category = group,
+                                        channelNum = counter.toString()
+                                    )
+                                )
+                                chanCount++
+                                if (chanBatch.size >= 500) {
+                                    onChannelBatch(ArrayList(chanBatch))
+                                    chanBatch.clear()
+                                }
+                            }
+                        }
+
+                        counter++
+                        currentExtInf = ""
+                    }
+                    line = reader.readLine()
+                }
+
+                if (chanBatch.isNotEmpty()) {
+                    onChannelBatch(chanBatch)
+                    chanBatch.clear()
+                }
+                if (movBatch.isNotEmpty()) {
+                    onMovieBatch(movBatch)
+                    movBatch.clear()
+                }
+                if (serBatch.isNotEmpty()) {
+                    onSeriesBatch(serBatch)
+                    serBatch.clear()
+                }
+            }
+
+            Result.success(Triple(chanCount, movCount, serCount))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches detailed seasons and episodes for a single selected series.
      */
     suspend fun fetchSeriesInfo(
         serverUrl: String,
@@ -280,7 +559,7 @@ class XtreamCodesService {
                         episodes.add(
                             Episode(
                                 id = "xtream_ep_${seriesId}_${epId}",
-                                seriesId = "xtream_ser_$seriesId",
+                                seriesId = seriesId,
                                 seasonNum = seasonNum,
                                 episodeNum = epNum,
                                 title = title,
@@ -291,7 +570,6 @@ class XtreamCodesService {
                             )
                         )
                     } catch (_: Exception) {
-                        // Skip corrupted episode
                     }
                 }
 
@@ -310,101 +588,58 @@ class XtreamCodesService {
         }
     }
 
-    /**
-     * Executes requests with pagination detection.
-     * If server returns paginated data (e.g. responds to &page=1, &page=2), it iterates until all pages are retrieved.
-     * If server returns all items in a single response (the standard Xtream Codes behavior), returns all items directly.
-     */
-    private fun fetchWithPaginationSupport(baseUrl: String): JSONArray {
-        val firstRequest = Request.Builder().url(baseUrl).build()
-        val firstResponse = client.newCall(firstRequest).execute()
-        if (!firstResponse.isSuccessful) {
-            return JSONArray()
-        }
-
-        val body = firstResponse.body?.string()?.trim() ?: "[]"
-        if (!body.startsWith("[")) {
-            return JSONArray()
-        }
-
-        val firstArray = JSONArray(body)
-
-        // Check if server is paginating (typically 100 or 500 items per page when pagination is enforced)
-        // If it returned 0 items or a small batch, we already have everything or nothing
-        if (firstArray.length() == 0) {
-            return firstArray
-        }
-
-        // Test if the server supports &page=2 by probing page 2
-        // Only attempt pagination if the URL didn't already specify a page
-        if (!baseUrl.contains("&page=")) {
-            try {
-                val page2Url = "$baseUrl&page=2"
-                val page2Request = Request.Builder().url(page2Url).build()
-                val page2Response = client.newCall(page2Request).execute()
-
-                if (page2Response.isSuccessful) {
-                    val p2Body = page2Response.body?.string()?.trim() ?: "[]"
-                    if (p2Body.startsWith("[")) {
-                        val p2Array = JSONArray(p2Body)
-                        if (p2Array.length() > 0) {
-                            // Server supports pagination! Collect all pages
-                            val combinedArray = JSONArray()
-                            // Add page 1
-                            for (i in 0 until firstArray.length()) combinedArray.put(firstArray.get(i))
-                            // Add page 2
-                            for (i in 0 until p2Array.length()) combinedArray.put(p2Array.get(i))
-
-                            var currentPage = 3
-                            var hasMore = true
-                            while (hasMore && currentPage <= 500) { // Safety ceiling of 500 pages (e.g. 50,000+ items)
-                                try {
-                                    val pageUrl = "$baseUrl&page=$currentPage"
-                                    val pReq = Request.Builder().url(pageUrl).build()
-                                    val pRes = client.newCall(pReq).execute()
-                                    if (pRes.isSuccessful) {
-                                        val pBody = pRes.body?.string()?.trim() ?: "[]"
-                                        if (pBody.startsWith("[")) {
-                                            val pArr = JSONArray(pBody)
-                                            if (pArr.length() > 0) {
-                                                for (i in 0 until pArr.length()) combinedArray.put(pArr.get(i))
-                                                currentPage++
-                                            } else {
-                                                hasMore = false
-                                            }
-                                        } else {
-                                            hasMore = false
-                                        }
-                                    } else {
-                                        hasMore = false
-                                    }
-                                } catch (_: Exception) {
-                                    hasMore = false
-                                }
-                            }
-                            return combinedArray
-                        }
-                    }
+    private fun nextSafeString(reader: JsonReader): String {
+        return try {
+            when (reader.peek()) {
+                JsonToken.STRING -> reader.nextString()
+                JsonToken.NUMBER -> reader.nextString()
+                JsonToken.BOOLEAN -> reader.nextBoolean().toString()
+                JsonToken.NULL -> {
+                    reader.nextNull()
+                    ""
                 }
-            } catch (_: Exception) {
-                // If pagination probe fails, fallback to firstArray
+                else -> {
+                    reader.skipValue()
+                    ""
+                }
             }
+        } catch (_: Exception) {
+            ""
         }
-
-        return firstArray
     }
 
-    suspend fun fetchM3u(url: String): Result<ParsedPlaylist> = withContext(Dispatchers.IO) {
+    private fun skipToNextObject(reader: JsonReader) {
         try {
-            val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("HTTP error ${response.code}"))
+            while (reader.hasNext()) {
+                reader.skipValue()
             }
-            val body = response.body?.string() ?: ""
-            Result.success(M3uParser.parse(body))
-        } catch (e: Exception) {
-            Result.failure(e)
+            if (reader.peek() == JsonToken.END_OBJECT) {
+                reader.endObject()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun extractAttribute(extinf: String, attrName: String): String {
+        return try {
+            val regex = Regex("""$attrName="([^"]*)"""", RegexOption.IGNORE_CASE)
+            val match = regex.find(extinf)
+            match?.groupValues?.get(1)?.trim() ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun extractName(extinf: String): String {
+        return try {
+            val lastComma = extinf.lastIndexOf(',')
+            if (lastComma != -1 && lastComma < extinf.length - 1) {
+                extinf.substring(lastComma + 1).trim()
+            } else {
+                ""
+            }
+        } catch (_: Exception) {
+            ""
         }
     }
 }

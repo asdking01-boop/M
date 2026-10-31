@@ -38,14 +38,19 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.Channel
+import com.example.data.model.LiveChannelItem
 import com.example.data.model.Series
+import com.example.data.model.SeriesItem
 import com.example.data.model.VodMovie
+import com.example.data.model.VodMovieItem
 import com.example.data.model.WatchHistoryEntity
 import com.example.localization.LocalKrasStrings
 import com.example.ui.glass.GlassBadge
@@ -62,12 +67,59 @@ import com.example.ui.theme.TextSecondary
 
 @Composable
 fun MoviePosterCard(
+    movie: VodMovieItem,
+    onClick: () -> Unit,
+    onFavoriteClick: (() -> Unit)? = null,
+    isFavorite: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    MoviePosterCardInternal(
+        title = movie.title,
+        posterUrl = movie.posterUrl,
+        rating = movie.rating,
+        genre = movie.categoryName,
+        year = movie.year,
+        onClick = onClick,
+        onFavoriteClick = onFavoriteClick,
+        isFavorite = isFavorite,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun MoviePosterCard(
     movie: VodMovie,
     onClick: () -> Unit,
     onFavoriteClick: (() -> Unit)? = null,
     isFavorite: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    MoviePosterCardInternal(
+        title = movie.title,
+        posterUrl = movie.posterUrl,
+        rating = movie.rating,
+        genre = movie.genre,
+        year = movie.year,
+        onClick = onClick,
+        onFavoriteClick = onFavoriteClick,
+        isFavorite = isFavorite,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun MoviePosterCardInternal(
+    title: String,
+    posterUrl: String,
+    rating: String,
+    genre: String,
+    year: String,
+    onClick: () -> Unit,
+    onFavoriteClick: (() -> Unit)?,
+    isFavorite: Boolean,
+    modifier: Modifier
+) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -75,6 +127,14 @@ fun MoviePosterCard(
         animationSpec = spring(),
         label = "movieScale"
     )
+
+    val imageRequest = remember(posterUrl) {
+        ImageRequest.Builder(context)
+            .data(posterUrl.ifEmpty { null })
+            .size(240, 360)
+            .crossfade(true)
+            .build()
+    }
 
     Column(
         modifier = modifier
@@ -102,8 +162,8 @@ fun MoviePosterCard(
                 )
         ) {
             AsyncImage(
-                model = movie.posterUrl,
-                contentDescription = movie.title,
+                model = imageRequest,
+                contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -125,7 +185,7 @@ fun MoviePosterCard(
                 Text(text = "★", color = GoldStar, fontSize = 10.sp)
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = movie.rating,
+                    text = rating.ifEmpty { "N/A" },
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -175,7 +235,7 @@ fun MoviePosterCard(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = movie.title,
+            text = title,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
@@ -188,18 +248,39 @@ fun MoviePosterCard(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = movie.genre.split("/").firstOrNull()?.trim() ?: movie.genre,
+                text = genre.split("/").firstOrNull()?.trim() ?: genre,
                 fontSize = 11.sp,
                 color = TextSecondary,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false)
             )
-            Text(
-                text = movie.year,
-                fontSize = 11.sp,
-                color = TextSecondary
-            )
+            if (year.isNotBlank()) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = year,
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+            }
         }
     }
+}
+
+@Composable
+fun SeriesPosterCard(
+    series: SeriesItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SeriesPosterCardInternal(
+        title = series.title,
+        posterUrl = series.posterUrl,
+        rating = series.rating,
+        genre = series.genre.ifEmpty { series.categoryName },
+        seasonBadge = if (series.episodeCount > 0) "${series.episodeCount} Ep" else "Series",
+        onClick = onClick,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -208,6 +289,28 @@ fun SeriesPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    SeriesPosterCardInternal(
+        title = series.title,
+        posterUrl = series.posterUrl,
+        rating = series.rating,
+        genre = series.genre,
+        seasonBadge = "${series.seasons.size} S",
+        onClick = onClick,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SeriesPosterCardInternal(
+    title: String,
+    posterUrl: String,
+    rating: String,
+    genre: String,
+    seasonBadge: String,
+    onClick: () -> Unit,
+    modifier: Modifier
+) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -215,6 +318,14 @@ fun SeriesPosterCard(
         animationSpec = spring(),
         label = "seriesScale"
     )
+
+    val imageRequest = remember(posterUrl) {
+        ImageRequest.Builder(context)
+            .data(posterUrl.ifEmpty { null })
+            .size(240, 360)
+            .crossfade(true)
+            .build()
+    }
 
     Column(
         modifier = modifier
@@ -242,15 +353,15 @@ fun SeriesPosterCard(
                 )
         ) {
             AsyncImage(
-                model = series.posterUrl,
-                contentDescription = series.title,
+                model = imageRequest,
+                contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
 
             // Series Badge in Liquid Glass
             GlassBadge(
-                text = "${series.seasons.size} S",
+                text = seasonBadge,
                 backgroundColor = Color(0xCC0B0E14),
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -274,7 +385,7 @@ fun SeriesPosterCard(
                 Text(text = "★", color = GoldStar, fontSize = 10.sp)
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = series.rating,
+                    text = rating.ifEmpty { "N/A" },
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -285,7 +396,7 @@ fun SeriesPosterCard(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = series.title,
+            text = title,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
@@ -294,12 +405,33 @@ fun SeriesPosterCard(
         )
 
         Text(
-            text = series.genre,
+            text = genre,
             fontSize = 11.sp,
             color = TextSecondary,
             maxLines = 1
         )
     }
+}
+
+@Composable
+fun ChannelItemCard(
+    channel: LiveChannelItem,
+    onClick: () -> Unit,
+    onFavoriteClick: (() -> Unit)? = null,
+    isFavorite: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    ChannelItemCardInternal(
+        name = channel.name,
+        logoUrl = channel.logoUrl,
+        channelNum = channel.channelNum,
+        category = channel.categoryName,
+        currentProgram = null,
+        onClick = onClick,
+        onFavoriteClick = onFavoriteClick,
+        isFavorite = isFavorite,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -310,6 +442,32 @@ fun ChannelItemCard(
     isFavorite: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    ChannelItemCardInternal(
+        name = channel.name,
+        logoUrl = channel.logoUrl,
+        channelNum = channel.channelNum,
+        category = channel.category,
+        currentProgram = channel.currentProgram,
+        onClick = onClick,
+        onFavoriteClick = onFavoriteClick,
+        isFavorite = isFavorite,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun ChannelItemCardInternal(
+    name: String,
+    logoUrl: String,
+    channelNum: String,
+    category: String,
+    currentProgram: com.example.data.model.EpgProgram?,
+    onClick: () -> Unit,
+    onFavoriteClick: (() -> Unit)?,
+    isFavorite: Boolean,
+    modifier: Modifier
+) {
+    val context = LocalContext.current
     val strings = LocalKrasStrings.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -318,6 +476,14 @@ fun ChannelItemCard(
         animationSpec = spring(),
         label = "channelScale"
     )
+
+    val logoRequest = remember(logoUrl) {
+        ImageRequest.Builder(context)
+            .data(logoUrl.ifEmpty { null })
+            .size(180, 180)
+            .crossfade(true)
+            .build()
+    }
 
     Box(
         modifier = modifier
@@ -354,16 +520,18 @@ fun ChannelItemCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (channel.logoUrl.isNotEmpty()) {
+                if (logoUrl.isNotEmpty()) {
                     AsyncImage(
-                        model = channel.logoUrl,
-                        contentDescription = channel.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        model = logoRequest,
+                        contentDescription = name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(6.dp)
                     )
                 } else {
                     Text(
-                        text = channel.channelNum.ifEmpty { "TV" },
+                        text = channelNum.ifEmpty { "TV" },
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
                         color = KrasRedBright
@@ -398,7 +566,7 @@ fun ChannelItemCard(
             // Channel Details and EPG Information
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = channel.name,
+                    text = name,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
@@ -408,10 +576,10 @@ fun ChannelItemCard(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // EPG Current Show
-                if (channel.currentProgram != null) {
+                // EPG Current Show if present
+                if (currentProgram != null) {
                     Text(
-                        text = "${strings.epgNow}: ${channel.currentProgram.title}",
+                        text = "${strings.epgNow}: ${currentProgram.title}",
                         fontSize = 12.sp,
                         color = KrasRedBright,
                         fontWeight = FontWeight.SemiBold,
@@ -421,9 +589,8 @@ fun ChannelItemCard(
 
                     Spacer(modifier = Modifier.height(5.dp))
 
-                    // EPG progress bar
                     LinearProgressIndicator(
-                        progress = { channel.currentProgram.progressPercent },
+                        progress = { currentProgram.progressPercent },
                         modifier = Modifier
                             .fillMaxWidth(0.90f)
                             .height(3.dp)
@@ -433,9 +600,11 @@ fun ChannelItemCard(
                     )
                 } else {
                     Text(
-                        text = channel.category,
+                        text = category.ifEmpty { strings.allChannels },
                         fontSize = 12.sp,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -492,6 +661,7 @@ fun ContinueWatchingCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -499,6 +669,14 @@ fun ContinueWatchingCard(
         animationSpec = spring(),
         label = "continueScale"
     )
+
+    val imageRequest = remember(item.posterUrl) {
+        ImageRequest.Builder(context)
+            .data(item.posterUrl.ifEmpty { null })
+            .size(360, 240)
+            .crossfade(true)
+            .build()
+    }
 
     Column(
         modifier = modifier
@@ -526,7 +704,7 @@ fun ContinueWatchingCard(
                 )
         ) {
             AsyncImage(
-                model = item.posterUrl,
+                model = imageRequest,
                 contentDescription = item.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

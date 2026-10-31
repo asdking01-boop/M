@@ -145,9 +145,18 @@ data class KrasStrings(
     val deleteAccount: String,
     val useDemoMode: String,
     val invalidUrl: String,
-    val fillAllFields: String,
+    val fillAllFields: String = "يرجى ملء جميع الحقول المطلوبة",
     val connecting: String,
-    val close: String
+    val close: String,
+    val loading: String = "جاري التحميل...",
+    val searchMovies: String = "بحث في الأفلام...",
+    val searchSeries: String = "بحث في المسلسلات...",
+    val searchPlaceholder: String = "ابحث عن القنوات والأفلام والمسلسلات...",
+    val typeToSearch: String = "اكتب كلمة للبحث...",
+    val noChannelsFound: String = "لا توجد قنوات مطابقة",
+    val noMoviesFound: String = "لا توجد أفلام مطابقة",
+    val noSeriesFound: String = "لا توجد مسلسلات مطابقة",
+    val series: String = "مسلسلات"
 )
 
 val ArabicStrings = KrasStrings(
@@ -385,7 +394,16 @@ val EnglishStrings = KrasStrings(
     invalidUrl = "Please enter a valid URL",
     fillAllFields = "Please fill in all required fields",
     connecting = "Connecting to IPTV provider...",
-    close = "Close"
+    close = "Close",
+    loading = "Loading...",
+    searchMovies = "Search movies...",
+    searchSeries = "Search series...",
+    searchPlaceholder = "Search channels, movies, series...",
+    typeToSearch = "Type to search...",
+    noChannelsFound = "No channels found",
+    noMoviesFound = "No movies found",
+    noSeriesFound = "No series found",
+    series = "Series"
 )
 
 val LocalKrasStrings = compositionLocalOf { ArabicStrings }

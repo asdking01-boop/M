@@ -76,6 +76,33 @@ import com.example.ui.theme.LiveGreen
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import com.example.data.model.VodMovieItem
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MovieDetailSheet(
+    movie: VodMovieItem,
+    isFavorite: Boolean,
+    onDismiss: () -> Unit,
+    onPlayClick: (VodMovieItem) -> Unit,
+    onToggleFavorite: (VodMovieItem) -> Unit
+) {
+    MovieDetailSheetInternal(
+        title = movie.title,
+        backdropUrl = movie.posterUrl,
+        posterUrl = movie.posterUrl,
+        year = movie.year,
+        duration = "HD",
+        rating = movie.rating,
+        genre = movie.categoryName,
+        description = "",
+        isFavorite = isFavorite,
+        onDismiss = onDismiss,
+        onPlayClick = { onPlayClick(movie) },
+        onToggleFavorite = { onToggleFavorite(movie) }
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieDetailSheet(
@@ -84,6 +111,38 @@ fun MovieDetailSheet(
     onDismiss: () -> Unit,
     onPlayClick: (VodMovie) -> Unit,
     onToggleFavorite: (VodMovie) -> Unit
+) {
+    MovieDetailSheetInternal(
+        title = movie.title,
+        backdropUrl = movie.backdropUrl.ifEmpty { movie.posterUrl },
+        posterUrl = movie.posterUrl,
+        year = movie.year,
+        duration = movie.duration,
+        rating = movie.rating,
+        genre = movie.genre,
+        description = movie.description,
+        isFavorite = isFavorite,
+        onDismiss = onDismiss,
+        onPlayClick = { onPlayClick(movie) },
+        onToggleFavorite = { onToggleFavorite(movie) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MovieDetailSheetInternal(
+    title: String,
+    backdropUrl: String,
+    posterUrl: String,
+    year: String,
+    duration: String,
+    rating: String,
+    genre: String,
+    description: String,
+    isFavorite: Boolean,
+    onDismiss: () -> Unit,
+    onPlayClick: () -> Unit,
+    onToggleFavorite: () -> Unit
 ) {
     val strings = LocalKrasStrings.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -109,8 +168,8 @@ fun MovieDetailSheet(
                             .height(260.dp)
                     ) {
                         AsyncImage(
-                            model = movie.backdropUrl.ifEmpty { movie.posterUrl },
-                            contentDescription = movie.title,
+                            model = backdropUrl.ifEmpty { posterUrl },
+                            contentDescription = title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -168,8 +227,8 @@ fun MovieDetailSheet(
                                     )
                             ) {
                                 AsyncImage(
-                                    model = movie.posterUrl,
-                                    contentDescription = movie.title,
+                                    model = posterUrl,
+                                    contentDescription = title,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -178,7 +237,7 @@ fun MovieDetailSheet(
                             // Title & Quick Specs
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = movie.title,
+                                    text = title,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Black,
                                     color = TextPrimary
@@ -190,12 +249,16 @@ fun MovieDetailSheet(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    GlassBadge(text = movie.year, backgroundColor = Color(0x33FFFFFF))
-                                    GlassBadge(text = movie.duration, backgroundColor = Color(0x33FFFFFF))
+                                    if (year.isNotBlank()) {
+                                        GlassBadge(text = year, backgroundColor = Color(0x33FFFFFF))
+                                    }
+                                    if (duration.isNotBlank()) {
+                                        GlassBadge(text = duration, backgroundColor = Color(0x33FFFFFF))
+                                    }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(text = "★ ", color = GoldStar, fontSize = 13.sp)
                                         Text(
-                                            text = movie.rating,
+                                            text = rating.ifEmpty { "N/A" },
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
                                             fontSize = 13.sp
@@ -206,7 +269,7 @@ fun MovieDetailSheet(
                                 Spacer(modifier = Modifier.height(6.dp))
 
                                 Text(
-                                    text = movie.genre,
+                                    text = genre,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = KrasRedBright
                                 )
@@ -225,7 +288,7 @@ fun MovieDetailSheet(
                                 icon = Icons.Default.PlayArrow,
                                 isPrimary = true,
                                 testTag = "movie_play_button",
-                                onClick = { onPlayClick(movie) },
+                                onClick = onPlayClick,
                                 modifier = Modifier.weight(1f)
                             )
 
@@ -234,29 +297,31 @@ fun MovieDetailSheet(
                                 icon = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                 isPrimary = false,
                                 testTag = "movie_favorite_button",
-                                onClick = { onToggleFavorite(movie) },
+                                onClick = onToggleFavorite,
                                 modifier = Modifier.weight(1f)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
+                        if (description.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        // Synopsis
-                        Text(
-                            text = strings.synopsis,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
+                            // Synopsis
+                            Text(
+                                text = strings.synopsis,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                        Text(
-                            text = movie.description,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                            lineHeight = 22.sp
-                        )
+                            Text(
+                                text = description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                lineHeight = 22.sp
+                            )
+                        }
                     }
                 }
             }

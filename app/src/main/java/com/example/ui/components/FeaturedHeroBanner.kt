@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.VodMovie
+import com.example.data.model.VodMovieItem
 import com.example.localization.LocalKrasStrings
 import com.example.ui.glass.GlassBadge
 import com.example.ui.glass.glassBackground
@@ -55,9 +56,52 @@ import com.example.ui.theme.TextSecondary
 
 @Composable
 fun FeaturedHeroBanner(
+    featuredMovie: VodMovieItem,
+    onWatchClick: (VodMovieItem) -> Unit,
+    onInfoClick: (VodMovieItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FeaturedHeroBannerInternal(
+        title = featuredMovie.title,
+        backdropUrl = featuredMovie.posterUrl,
+        genre = featuredMovie.categoryName,
+        year = featuredMovie.year,
+        rating = featuredMovie.rating,
+        onWatchClick = { onWatchClick(featuredMovie) },
+        onInfoClick = { onInfoClick(featuredMovie) },
+        modifier = modifier
+    )
+}
+
+@Composable
+fun FeaturedHeroBanner(
     featuredMovie: VodMovie,
     onWatchClick: (VodMovie) -> Unit,
     onInfoClick: (VodMovie) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FeaturedHeroBannerInternal(
+        title = featuredMovie.title,
+        backdropUrl = featuredMovie.backdropUrl.ifEmpty { featuredMovie.posterUrl },
+        genre = featuredMovie.genre,
+        year = featuredMovie.year,
+        rating = featuredMovie.rating,
+        onWatchClick = { onWatchClick(featuredMovie) },
+        onInfoClick = { onInfoClick(featuredMovie) },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun FeaturedHeroBannerInternal(
+    title: String,
+    backdropUrl: String,
+    genre: String,
+    year: String,
+    rating: String,
+    description: String = "",
+    onWatchClick: () -> Unit,
+    onInfoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalKrasStrings.current
@@ -78,17 +122,17 @@ fun FeaturedHeroBanner(
             )
     ) {
         // Hero Background Artwork
-        if (featuredMovie.backdropUrl.isNotEmpty()) {
+        if (backdropUrl.isNotEmpty()) {
             AsyncImage(
-                model = featuredMovie.backdropUrl,
-                contentDescription = featuredMovie.title,
+                model = backdropUrl,
+                contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             Image(
                 painter = painterResource(id = R.drawable.kras_hero_banner),
-                contentDescription = featuredMovie.title,
+                contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -129,14 +173,16 @@ fun FeaturedHeroBanner(
                 )
 
                 GlassBadge(
-                    text = featuredMovie.genre.split("/").firstOrNull()?.trim() ?: featuredMovie.genre,
+                    text = genre.split("/").firstOrNull()?.trim() ?: genre,
                     backgroundColor = Color(0x66181D26)
                 )
 
-                GlassBadge(
-                    text = featuredMovie.year,
-                    backgroundColor = Color(0x66181D26)
-                )
+                if (year.isNotBlank()) {
+                    GlassBadge(
+                        text = year,
+                        backgroundColor = Color(0x66181D26)
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -151,7 +197,7 @@ fun FeaturedHeroBanner(
                 ) {
                     Text(text = "★ ", color = GoldStar, fontSize = 11.sp)
                     Text(
-                        text = featuredMovie.rating,
+                        text = rating.ifEmpty { "N/A" },
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -163,7 +209,7 @@ fun FeaturedHeroBanner(
 
             // Movie Title
             Text(
-                text = featuredMovie.title,
+                text = title,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black,
                 color = TextPrimary,
@@ -171,17 +217,17 @@ fun FeaturedHeroBanner(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Short Description
-            Text(
-                text = featuredMovie.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp
-            )
+            if (description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
+                )
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -197,7 +243,7 @@ fun FeaturedHeroBanner(
                     icon = Icons.Default.PlayArrow,
                     isPrimary = true,
                     testTag = "hero_watch_now_button",
-                    onClick = { onWatchClick(featuredMovie) },
+                    onClick = onWatchClick,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -207,7 +253,7 @@ fun FeaturedHeroBanner(
                     icon = Icons.Default.Info,
                     isPrimary = false,
                     testTag = "hero_more_info_button",
-                    onClick = { onInfoClick(featuredMovie) },
+                    onClick = onInfoClick,
                     modifier = Modifier.weight(1f)
                 )
             }

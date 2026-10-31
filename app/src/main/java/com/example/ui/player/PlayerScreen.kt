@@ -94,6 +94,15 @@ import com.example.ui.theme.TextSecondary
 import com.example.ui.viewmodel.PlayerLaunchArgs
 import kotlinx.coroutines.delay
 
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(

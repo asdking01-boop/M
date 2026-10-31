@@ -12,8 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -23,244 +24,270 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.Channel
-import com.example.data.model.Series
-import com.example.data.model.VodMovie
+import androidx.paging.LoadState
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
+import com.example.data.model.LiveChannelItem
+import com.example.data.model.SeriesItem
+import com.example.data.model.VodMovieItem
 import com.example.localization.LocalKrasStrings
 import com.example.ui.components.ChannelItemCard
 import com.example.ui.components.MoviePosterCard
 import com.example.ui.components.SeriesPosterCard
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
-import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
 
 @Composable
 fun SearchScreen(
     searchQuery: String,
     onQueryChange: (String) -> Unit,
-    channels: List<Channel>,
-    movies: List<VodMovie>,
-    series: List<Series>,
-    onChannelClick: (Channel) -> Unit,
-    onMovieClick: (VodMovie) -> Unit,
-    onSeriesClick: (Series) -> Unit,
-    onToggleFavoriteChannel: (Channel) -> Unit,
+    getChannelsPager: (category: String, query: String) -> Flow<PagingData<LiveChannelItem>>,
+    getMoviesPager: (genre: String, query: String) -> Flow<PagingData<VodMovieItem>>,
+    getSeriesPager: (genre: String, query: String) -> Flow<PagingData<SeriesItem>>,
+    onChannelClick: (LiveChannelItem) -> Unit,
+    onMovieClick: (VodMovieItem) -> Unit,
+    onSeriesClick: (SeriesItem) -> Unit,
+    onToggleFavoriteChannel: (LiveChannelItem) -> Unit,
+    onToggleFavoriteMovie: (VodMovieItem) -> Unit,
     isFavorite: (String) -> Boolean,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalKrasStrings.current
+    var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Memoize search matches for fast, stutter-free performance with 10,000+ items
-    val matchingChannels = remember(searchQuery, channels) {
-        if (searchQuery.isNotBlank()) {
-            channels.filter { it.name.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true) }
-        } else emptyList()
-    }
-
-    val matchingMovies = remember(searchQuery, movies) {
-        if (searchQuery.isNotBlank()) {
-            movies.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
-        } else emptyList()
-    }
-
-    val matchingSeries = remember(searchQuery, series) {
-        if (searchQuery.isNotBlank()) {
-            series.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
-        } else emptyList()
-    }
-
-    val totalMatches = matchingChannels.size + matchingMovies.size + matchingSeries.size
-
-    // Incremental loading state
-    var displayedLimit by remember(searchQuery) { mutableIntStateOf(50) }
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(listState, totalMatches) {
-        snapshotFlow {
-            val total = listState.layoutInfo.totalItemsCount
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last to total
-        }.distinctUntilChanged().collect { (last, total) ->
-            if (total > 0 && last >= total - 10 && displayedLimit < totalMatches) {
-                displayedLimit = (displayedLimit + 50).coerceAtMost(totalMatches)
-            }
-        }
-    }
-
-    val visibleChannels = remember(matchingChannels, displayedLimit) {
-        if (displayedLimit >= matchingChannels.size) matchingChannels else matchingChannels.subList(0, displayedLimit)
-    }
-
-    val visibleMovies = remember(matchingMovies, displayedLimit) {
-        if (displayedLimit >= matchingMovies.size) matchingMovies else matchingMovies.subList(0, displayedLimit)
-    }
-
-    val visibleSeries = remember(matchingSeries, displayedLimit) {
-        if (displayedLimit >= matchingSeries.size) matchingSeries else matchingSeries.subList(0, displayedLimit)
-    }
+    val tabTitles = listOf(strings.liveTvChannels, strings.movies, strings.series)
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(KrasBlack)
-            .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Search Input
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onQueryChange,
-            placeholder = { Text(strings.searchHint, color = TextSecondary, fontSize = 14.sp) },
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = TextSecondary)
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+        // Search Input Header
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = Color(0x331E222B),
-                unfocusedContainerColor = Color(0x221E222B),
-                focusedBorderColor = KrasRed,
-                unfocusedBorderColor = GlassWhiteStroke.copy(alpha = 0.25f),
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onQueryChange,
+                placeholder = {
+                    Text(
+                        text = strings.searchPlaceholder,
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = KrasRedBright,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onQueryChange("") }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color(0x3312151D),
+                    unfocusedContainerColor = Color(0x2212151D),
+                    focusedBorderColor = KrasRedBright,
+                    unfocusedBorderColor = GlassWhiteStroke,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
-        )
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Section Tabs
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+            contentColor = KrasRedBright,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                    color = KrasRedBright
+                )
+            },
+            divider = {}
+        ) {
+            tabTitles.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            text = title,
+                            fontSize = 14.sp,
+                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selectedTab == index) KrasRedBright else TextSecondary
+                        )
+                    }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (searchQuery.isBlank()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 96.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = strings.searchHint,
+                    text = strings.typeToSearch,
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
             }
-        } else if (totalMatches == 0) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 96.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = strings.noSearchResults,
-                    color = TextSecondary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
         } else {
-            LazyColumn(
-                state = listState,
-                contentPadding = PaddingValues(bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Matching Channels
-                if (matchingChannels.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "${strings.navLive} (${matchingChannels.size})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                    }
-                    items(visibleChannels, key = { it.id }) { ch ->
-                        ChannelItemCard(
-                            channel = ch,
-                            onClick = { onChannelClick(ch) },
-                            onFavoriteClick = { onToggleFavoriteChannel(ch) },
-                            isFavorite = isFavorite(ch.id)
-                        )
-                    }
-                }
+            when (selectedTab) {
+                0 -> {
+                    // Paged Channels Search
+                    val pagedChannels = remember(searchQuery) {
+                        getChannelsPager("", searchQuery)
+                    }.collectAsLazyPagingItems()
 
-                // Matching Movies
-                if (matchingMovies.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "${strings.navMovies} (${matchingMovies.size})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                    }
-                    items(visibleMovies, key = { it.id }) { mov ->
-                        MoviePosterCard(
-                            movie = mov,
-                            onClick = { onMovieClick(mov) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-
-                // Matching Series
-                if (matchingSeries.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "${strings.navSeries} (${matchingSeries.size})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                    }
-                    items(visibleSeries, key = { it.id }) { ser ->
-                        SeriesPosterCard(
-                            series = ser,
-                            onClick = { onSeriesClick(ser) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-
-                if (displayedLimit < totalMatches) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
+                    if (pagedChannels.loadState.refresh is LoadState.Loading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = KrasRedBright, modifier = Modifier.size(36.dp))
+                        }
+                    } else if (pagedChannels.itemCount == 0) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(text = strings.noChannelsFound, color = TextSecondary, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = KrasRedBright,
-                                strokeWidth = 2.dp
-                            )
+                            items(
+                                count = pagedChannels.itemCount,
+                                key = { i -> pagedChannels.peek(i)?.id ?: "search_ch_$i" }
+                            ) { i ->
+                                val channel = pagedChannels[i]
+                                if (channel != null) {
+                                    ChannelItemCard(
+                                        channel = channel,
+                                        onClick = { onChannelClick(channel) },
+                                        onFavoriteClick = { onToggleFavoriteChannel(channel) },
+                                        isFavorite = isFavorite(channel.id)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                1 -> {
+                    // Paged Movies Search
+                    val pagedMovies = remember(searchQuery) {
+                        getMoviesPager("", searchQuery)
+                    }.collectAsLazyPagingItems()
+
+                    if (pagedMovies.loadState.refresh is LoadState.Loading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = KrasRedBright, modifier = Modifier.size(36.dp))
+                        }
+                    } else if (pagedMovies.itemCount == 0) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(text = strings.noMoviesFound, color = TextSecondary, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 135.dp),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(
+                                count = pagedMovies.itemCount,
+                                key = { i -> pagedMovies.peek(i)?.id ?: "search_mov_$i" }
+                            ) { i ->
+                                val movie = pagedMovies[i]
+                                if (movie != null) {
+                                    MoviePosterCard(
+                                        movie = movie,
+                                        onClick = { onMovieClick(movie) },
+                                        onFavoriteClick = { onToggleFavoriteMovie(movie) },
+                                        isFavorite = isFavorite(movie.id)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                2 -> {
+                    // Paged Series Search
+                    val pagedSeries = remember(searchQuery) {
+                        getSeriesPager("", searchQuery)
+                    }.collectAsLazyPagingItems()
+
+                    if (pagedSeries.loadState.refresh is LoadState.Loading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = KrasRedBright, modifier = Modifier.size(36.dp))
+                        }
+                    } else if (pagedSeries.itemCount == 0) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(text = strings.noSeriesFound, color = TextSecondary, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 135.dp),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(
+                                count = pagedSeries.itemCount,
+                                key = { i -> pagedSeries.peek(i)?.id ?: "search_ser_$i" }
+                            ) { i ->
+                                val item = pagedSeries[i]
+                                if (item != null) {
+                                    SeriesPosterCard(
+                                        series = item,
+                                        onClick = { onSeriesClick(item) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }

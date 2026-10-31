@@ -13,12 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -31,35 +32,37 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.VodMovie
+import androidx.paging.LoadState
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
+import com.example.data.model.VodMovieItem
 import com.example.localization.LocalKrasStrings
+import com.example.ui.components.LiquidGlassButton
 import com.example.ui.components.MoviePosterCard
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
-import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
 
 @Composable
 fun MoviesScreen(
-    movies: List<VodMovie>,
-    onMovieClick: (VodMovie) -> Unit,
-    onToggleFavorite: (VodMovie) -> Unit,
+    genres: List<String>,
+    getMoviesPager: (genre: String, query: String) -> Flow<PagingData<VodMovieItem>>,
+    onMovieClick: (VodMovieItem) -> Unit,
+    onToggleFavorite: (VodMovieItem) -> Unit,
     isFavorite: (String) -> Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -67,54 +70,26 @@ fun MoviesScreen(
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val categories = remember(movies) {
-        val uniqueGenres = movies.map { it.genre.split("/").first().trim() }.distinct().filter { it.isNotBlank() }
-        listOf(strings.filterAll) + uniqueGenres
+    val allGenreLabel = strings.filterAll
+    val fullGenres = remember(genres, allGenreLabel) {
+        listOf(allGenreLabel) + genres.filter { it.isNotBlank() && it != allGenreLabel }
     }
 
-    val selectedCategory = categories.getOrNull(selectedCategoryIndex) ?: strings.filterAll
+    val selectedGenre = fullGenres.getOrNull(selectedCategoryIndex) ?: allGenreLabel
+    val genreQueryParam = if (selectedCategoryIndex == 0) "" else selectedGenre
 
-    // Memoized filter for 10,000+ movies
-    val filteredMovies = remember(movies, selectedCategoryIndex, selectedCategory, searchQuery) {
-        movies.filter { mov ->
-            val matchesCategory = selectedCategoryIndex == 0 || mov.genre.contains(selectedCategory, ignoreCase = true)
-            val matchesSearch = searchQuery.isBlank() ||
-                    mov.title.contains(searchQuery, ignoreCase = true) ||
-                    mov.genre.contains(searchQuery, ignoreCase = true)
-            matchesCategory && matchesSearch
-        }
+    val pagedFlow = remember(genreQueryParam, searchQuery) {
+        getMoviesPager(genreQueryParam, searchQuery)
     }
-
-    // Incremental loading state
-    var displayedCount by remember(selectedCategoryIndex, searchQuery) { mutableIntStateOf(60) }
+    val lazyMovies = pagedFlow.collectAsLazyPagingItems()
     val gridState = rememberLazyGridState()
-
-    LaunchedEffect(gridState, filteredMovies.size) {
-        snapshotFlow {
-            val totalItems = gridState.layoutInfo.totalItemsCount
-            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            lastVisible to totalItems
-        }.distinctUntilChanged().collect { (lastVisible, totalItems) ->
-            if (totalItems > 0 && lastVisible >= totalItems - 15 && displayedCount < filteredMovies.size) {
-                displayedCount = (displayedCount + 60).coerceAtMost(filteredMovies.size)
-            }
-        }
-    }
-
-    val visibleMovies = remember(filteredMovies, displayedCount) {
-        if (displayedCount >= filteredMovies.size) {
-            filteredMovies
-        } else {
-            filteredMovies.subList(0, displayedCount)
-        }
-    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(KrasBlack)
     ) {
-        // Search
+        // Search Bar in Movies
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -125,110 +100,174 @@ fun MoviesScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        text = "${strings.searchHint} (${movies.size})",
+                        text = strings.searchMovies,
                         color = TextSecondary,
                         fontSize = 13.sp
                     )
                 },
                 leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = TextSecondary)
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0x331E222B),
-                    unfocusedContainerColor = Color(0x221E222B),
-                    focusedBorderColor = KrasRed,
-                    unfocusedBorderColor = GlassWhiteStroke.copy(alpha = 0.2f),
+                    focusedContainerColor = Color(0x3312151D),
+                    unfocusedContainerColor = Color(0x2212151D),
+                    focusedBorderColor = KrasRedBright,
+                    unfocusedBorderColor = GlassWhiteStroke,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary
-                )
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Category Filter Tabs
-        ScrollableTabRow(
-            selectedTabIndex = selectedCategoryIndex,
-            containerColor = Color.Transparent,
-            contentColor = KrasRedBright,
-            edgePadding = 16.dp,
-            indicator = { tabPositions ->
-                if (selectedCategoryIndex < tabPositions.size) {
+        // Genre filter tab row
+        if (fullGenres.size > 1) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedCategoryIndex.coerceIn(0, fullGenres.size - 1),
+                containerColor = Color.Transparent,
+                contentColor = KrasRedBright,
+                edgePadding = 16.dp,
+                indicator = { tabPositions ->
+                    val validIndex = selectedCategoryIndex.coerceIn(0, tabPositions.size - 1)
                     TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[selectedCategoryIndex]),
+                        Modifier.tabIndicatorOffset(tabPositions[validIndex]),
                         color = KrasRedBright
                     )
+                },
+                divider = {}
+            ) {
+                fullGenres.forEachIndexed { index, genreName ->
+                    Tab(
+                        selected = selectedCategoryIndex == index,
+                        onClick = { selectedCategoryIndex = index },
+                        text = {
+                            Text(
+                                text = genreName,
+                                fontSize = 13.sp,
+                                fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selectedCategoryIndex == index) KrasRedBright else TextSecondary
+                            )
+                        }
+                    )
                 }
-            }
-        ) {
-            categories.forEachIndexed { index, name ->
-                Tab(
-                    selected = selectedCategoryIndex == index,
-                    onClick = { selectedCategoryIndex = index },
-                    text = {
-                        Text(
-                            text = name,
-                            fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedCategoryIndex == index) TextPrimary else TextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-                )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        if (filteredMovies.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = strings.noSearchResults, color = TextSecondary, fontSize = 15.sp)
-            }
-        } else {
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Adaptive(minSize = 130.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(visibleMovies, key = { it.id }) { movie ->
-                    MoviePosterCard(
-                        movie = movie,
-                        onClick = { onMovieClick(movie) },
-                        onFavoriteClick = { onToggleFavorite(movie) },
-                        isFavorite = isFavorite(movie.id),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                lazyMovies.loadState.refresh is LoadState.Loading && lazyMovies.itemCount == 0 -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = KrasRedBright,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = strings.loading,
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
 
-                if (displayedCount < filteredMovies.size) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = KrasRedBright,
-                                strokeWidth = 2.dp
-                            )
+                lazyMovies.loadState.refresh is LoadState.Error && lazyMovies.itemCount == 0 -> {
+                    val error = (lazyMovies.loadState.refresh as LoadState.Error).error
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = error.localizedMessage ?: "Error loading movies",
+                            color = KrasRedBright,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LiquidGlassButton(
+                            text = strings.retry,
+                            icon = Icons.Default.Refresh,
+                            isPrimary = true,
+                            onClick = { lazyMovies.retry() }
+                        )
+                    }
+                }
+
+                lazyMovies.itemCount == 0 && lazyMovies.loadState.refresh is LoadState.NotLoading -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = strings.noMoviesFound,
+                            color = TextSecondary,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 135.dp),
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            count = lazyMovies.itemCount,
+                            key = { index -> lazyMovies.peek(index)?.id ?: "mov_$index" }
+                        ) { index ->
+                            val movie = lazyMovies[index]
+                            if (movie != null) {
+                                MoviePosterCard(
+                                    movie = movie,
+                                    onClick = { onMovieClick(movie) },
+                                    onFavoriteClick = { onToggleFavorite(movie) },
+                                    isFavorite = isFavorite(movie.id)
+                                )
+                            }
+                        }
+
+                        if (lazyMovies.loadState.append is LoadState.Loading) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = KrasRedBright,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

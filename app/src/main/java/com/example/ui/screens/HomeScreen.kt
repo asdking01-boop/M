@@ -17,30 +17,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AccountType
-import com.example.data.model.Channel
-import com.example.data.model.ContentType
 import com.example.data.model.IptvAccount
-import com.example.data.model.Series
-import com.example.data.model.VodMovie
+import com.example.data.model.LiveChannelItem
+import com.example.data.model.SeriesItem
+import com.example.data.model.VodMovieItem
 import com.example.data.model.WatchHistoryEntity
 import com.example.localization.LocalKrasStrings
 import com.example.ui.components.ChannelItemCard
@@ -48,9 +46,8 @@ import com.example.ui.components.ContinueWatchingCard
 import com.example.ui.components.FeaturedHeroBanner
 import com.example.ui.components.MoviePosterCard
 import com.example.ui.components.SeriesPosterCard
-import com.example.ui.glass.GlassBadge
+import com.example.ui.glass.glassBackground
 import com.example.ui.glass.liquidGlass
-import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
 import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
@@ -60,16 +57,18 @@ import com.example.ui.viewmodel.Screen
 
 @Composable
 fun HomeScreen(
-    featuredMovie: VodMovie?,
+    featuredMovie: VodMovieItem?,
     continueWatching: List<WatchHistoryEntity>,
-    channels: List<Channel>,
-    movies: List<VodMovie>,
-    series: List<Series>,
+    channels: List<LiveChannelItem>,
+    movies: List<VodMovieItem>,
+    series: List<SeriesItem>,
     activeAccount: IptvAccount?,
-    onWatchMovie: (VodMovie) -> Unit,
-    onInfoMovie: (VodMovie) -> Unit,
-    onWatchChannel: (Channel) -> Unit,
-    onSelectSeries: (Series) -> Unit,
+    loadingStatus: String? = null,
+    isLoading: Boolean = false,
+    onWatchMovie: (VodMovieItem) -> Unit,
+    onInfoMovie: (VodMovieItem) -> Unit,
+    onWatchChannel: (LiveChannelItem) -> Unit,
+    onSelectSeries: (SeriesItem) -> Unit,
     onResumeHistory: (WatchHistoryEntity) -> Unit,
     onNavigate: (Screen) -> Unit,
     modifier: Modifier = Modifier
@@ -82,6 +81,50 @@ fun HomeScreen(
             .background(KrasBlack),
         contentPadding = PaddingValues(bottom = 96.dp)
     ) {
+        // Sync Status Banner (Item 5: sequential loading indicator)
+        if (isLoading || loadingStatus != null) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .glassBackground(
+                            shape = RoundedCornerShape(14.dp),
+                            backgroundColor = Color(0xD81E1528),
+                            borderColor = KrasRedBright.copy(alpha = 0.6f),
+                            hasRedGlow = true,
+                            elevation = 4.dp
+                        )
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = KrasRedBright,
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = loadingStatus ?: strings.loading,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = KrasRedBright,
+                            trackColor = Color(0x33FFFFFF)
+                        )
+                    }
+                }
+            }
+        }
+
         // Featured Hero Content Banner
         if (featuredMovie != null) {
             item {
@@ -132,7 +175,7 @@ fun HomeScreen(
             }
         }
 
-        // Continue Watching Section (if user has watch progress)
+        // Continue Watching Section
         if (continueWatching.isNotEmpty()) {
             item {
                 Column(modifier = Modifier.padding(top = 16.dp)) {
@@ -148,7 +191,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(continueWatching) { item ->
+                        items(continueWatching, key = { it.contentId }) { item ->
                             ContinueWatchingCard(
                                 item = item,
                                 onClick = { onResumeHistory(item) }
@@ -251,7 +294,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(movies) { movie ->
+                        items(movies, key = { it.id }) { movie ->
                             MoviePosterCard(
                                 movie = movie,
                                 onClick = { onInfoMovie(movie) }
@@ -295,39 +338,10 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(series) { ser ->
+                        items(series, key = { it.id }) { ser ->
                             SeriesPosterCard(
                                 series = ser,
                                 onClick = { onSelectSeries(ser) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Popular Movies Row
-        if (movies.size > 2) {
-            item {
-                Column(modifier = Modifier.padding(top = 24.dp)) {
-                    Text(
-                        text = strings.popularMovies,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(movies.asReversed()) { movie ->
-                            MoviePosterCard(
-                                movie = movie,
-                                onClick = { onInfoMovie(movie) }
                             )
                         }
                     }
