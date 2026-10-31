@@ -214,7 +214,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun showSeriesDetails(series: Series?) {
+        if (series == null) {
+            _selectedSeries.value = null
+            return
+        }
         _selectedSeries.value = series
+        viewModelScope.launch {
+            val fullSeries = iptvRepo.getSeriesWithEpisodes(series)
+            _selectedSeries.value = fullSeries
+        }
     }
 
     fun setAccountDialogVisible(visible: Boolean) {

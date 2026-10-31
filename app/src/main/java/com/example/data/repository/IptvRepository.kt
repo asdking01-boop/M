@@ -10,6 +10,7 @@ import com.example.data.remote.SampleDataProvider
 import com.example.data.remote.XtreamCodesService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,18 +92,16 @@ class IptvRepository(
                         isActive = true,
                         channelsCount = parsed.channels.size,
                         moviesCount = parsed.movies.size,
-                        seriesCount = 0
+                        seriesCount = parsed.series.size
                     )
                     val newId = accountDao.insertAccount(account)
                     accountDao.setActiveAccount(newId)
                     _activeAccount.value = account.copy(id = newId)
 
-                    if (parsed.channels.isNotEmpty()) {
-                        _channels.value = parsed.channels
-                    }
-                    if (parsed.movies.isNotEmpty()) {
-                        _movies.value = parsed.movies
-                    }
+                    _channels.value = parsed.channels
+                    _movies.value = parsed.movies
+                    _series.value = parsed.series
+
                     _isLoading.value = false
                     Result.success(Unit)
                 },
@@ -117,47 +116,60 @@ class IptvRepository(
         }
     }
 
-    suspend fun addXtreamAccount(name: String, server: String, user: String, pass: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            _isLoading.value = true
-            try {
-                val result = xtreamService.authenticateAndLoad(server, user, pass)
-                result.fold(
-                    onSuccess = { (loadedChannels, loadedMovies, total) ->
-                        val account = IptvAccount(
-                            name = name.ifEmpty { "Xtream Account" },
-                            type = AccountType.XTREAM,
-                            serverUrl = server,
-                            username = user,
-                            password = pass,
-                            isActive = true,
-                            channelsCount = loadedChannels.size,
-                            moviesCount = loadedMovies.size,
-                            seriesCount = 0
-                        )
-                        val newId = accountDao.insertAccount(account)
-                        accountDao.setActiveAccount(newId)
-                        _activeAccount.value = account.copy(id = newId)
-
-                        if (loadedChannels.isNotEmpty()) {
-                            _channels.value = loadedChannels
-                        }
-                        if (loadedMovies.isNotEmpty()) {
-                            _movies.value = loadedMovies
-                        }
-                        _isLoading.value = false
-                        Result.success(Unit)
-                    },
-                    onFailure = { error ->
-                        _isLoading.value = false
-                        Result.failure(error)
-                    }
-                )
-            } catch (e: Exception) {
+    suspend fun addXtreamAccount(
+        name: String,
+        server: String,
+        user: String,
+        pass: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        _isLoading.value = true
+        try {
+            // 1. Authenticate first
+            val authResult = xtreamService.authenticate(server, user, pass)
+            if (authResult.isFailure) {
                 _isLoading.value = false
-                Result.failure(e)
+                return@withContext Result.failure(authResult.exceptionOrNull() ?: Exception("Authentication failed"))
             }
+
+            // 2. Separate requests for Live, VOD, and Series
+            val liveDeferred = async { xtreamService.fetchLiveStreams(server, user, pass) }
+            val vodDeferred = async { xtreamService.fetchVodStreams(server, user, pass) }
+            val seriesDeferred = async { xtreamService.fetchSeries(server, user, pass) }
+
+            val liveResult = liveDeferred.await()
+            val vodResult = vodDeferred.await()
+            val seriesResult = seriesDeferred.await()
+
+            val loadedChannels = liveResult.getOrDefault(emptyList())
+            val loadedMovies = vodResult.getOrDefault(emptyList())
+            val loadedSeries = seriesResult.getOrDefault(emptyList())
+
+            val account = IptvAccount(
+                name = name.ifEmpty { "Xtream Account" },
+                type = AccountType.XTREAM,
+                serverUrl = server,
+                username = user,
+                password = pass,
+                isActive = true,
+                channelsCount = loadedChannels.size,
+                moviesCount = loadedMovies.size,
+                seriesCount = loadedSeries.size
+            )
+            val newId = accountDao.insertAccount(account)
+            accountDao.setActiveAccount(newId)
+            _activeAccount.value = account.copy(id = newId)
+
+            _channels.value = loadedChannels
+            _movies.value = loadedMovies
+            _series.value = loadedSeries
+
+            _isLoading.value = false
+            Result.success(Unit)
+        } catch (e: Exception) {
+            _isLoading.value = false
+            Result.failure(e)
         }
+    }
 
     suspend fun switchAccount(account: IptvAccount) {
         if (account.type == AccountType.DEMO) {
@@ -187,20 +199,31 @@ class IptvRepository(
                     AccountType.M3U -> {
                         val result = xtreamService.fetchM3u(account.url)
                         result.onSuccess { parsed ->
-                            if (parsed.channels.isNotEmpty()) _channels.value = parsed.channels
-                            if (parsed.movies.isNotEmpty()) _movies.value = parsed.movies
+                            _channels.value = parsed.channels
+                            _movies.value = parsed.movies
+                            _series.value = parsed.series
                         }
                     }
                     AccountType.XTREAM -> {
-                        val result = xtreamService.authenticateAndLoad(
-                            account.serverUrl,
-                            account.username,
-                            account.password
-                        )
-                        result.onSuccess { (chans, movs, _) ->
-                            if (chans.isNotEmpty()) _channels.value = chans
-                            if (movs.isNotEmpty()) _movies.value = movs
+                        // Separate concurrent requests for live streams, movies, and series
+                        val liveDeferred = async {
+                            xtreamService.fetchLiveStreams(account.serverUrl, account.username, account.password)
                         }
+                        val vodDeferred = async {
+                            xtreamService.fetchVodStreams(account.serverUrl, account.username, account.password)
+                        }
+                        val seriesDeferred = async {
+                            xtreamService.fetchSeries(account.serverUrl, account.username, account.password)
+                        }
+
+                        val live = liveDeferred.await()
+                        live.onSuccess { if (it.isNotEmpty()) _channels.value = it }
+
+                        val vod = vodDeferred.await()
+                        vod.onSuccess { if (it.isNotEmpty()) _movies.value = it }
+
+                        val ser = seriesDeferred.await()
+                        ser.onSuccess { if (it.isNotEmpty()) _series.value = it }
                     }
                     AccountType.DEMO -> {
                         _channels.value = SampleDataProvider.sampleChannels
@@ -209,10 +232,39 @@ class IptvRepository(
                     }
                 }
             } catch (_: Exception) {
-                // Keep current loaded items if offline/error
+                // Keep current items if network glitch
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    /**
+     * Resolves complete seasons and episodes when a series is selected.
+     * If episodes haven't been fetched yet and source is Xtream, queries action=get_series_info.
+     */
+    suspend fun getSeriesWithEpisodes(series: Series): Series = withContext(Dispatchers.IO) {
+        val currentAcc = _activeAccount.value
+        if (currentAcc?.type == AccountType.XTREAM && series.seriesId.isNotEmpty()) {
+            val hasEpisodes = series.seasons.any { it.episodes.isNotEmpty() }
+            if (!hasEpisodes) {
+                val seasonsResult = xtreamService.fetchSeriesInfo(
+                    currentAcc.serverUrl,
+                    currentAcc.username,
+                    currentAcc.password,
+                    series.seriesId
+                )
+                val loadedSeasons = seasonsResult.getOrNull()
+                if (!loadedSeasons.isNullOrEmpty()) {
+                    val updatedSeries = series.copy(seasons = loadedSeasons)
+                    // Update in-memory list
+                    _series.value = _series.value.map {
+                        if (it.id == series.id) updatedSeries else it
+                    }
+                    return@withContext updatedSeries
+                }
+            }
+        }
+        series
     }
 }

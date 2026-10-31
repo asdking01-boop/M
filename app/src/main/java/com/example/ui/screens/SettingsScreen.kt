@@ -63,6 +63,7 @@ import com.example.data.model.PlayerAspectRatio
 import com.example.localization.AppLanguage
 import com.example.localization.LocalKrasStrings
 import com.example.ui.glass.GlassBadge
+import com.example.ui.glass.glassBackground
 import com.example.ui.glass.liquidGlass
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
@@ -427,14 +428,20 @@ private fun LanguageChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) KrasRed else Color(0x22FFFFFF))
+            .glassBackground(
+                shape = RoundedCornerShape(12.dp),
+                backgroundColor = if (isSelected) KrasRed.copy(alpha = 0.90f) else Color(0x281F2533),
+                borderColor = if (isSelected) KrasRedBright else Color.White.copy(alpha = 0.25f),
+                hasRedGlow = isSelected,
+                elevation = if (isSelected) 6.dp else 2.dp,
+                highlightIntensity = if (isSelected) 0.35f else 0.15f
+            )
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
         Text(
             text = text,
-            fontSize = 12.sp,
+            fontSize = 12.5.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = if (isSelected) Color.White else TextSecondary
         )

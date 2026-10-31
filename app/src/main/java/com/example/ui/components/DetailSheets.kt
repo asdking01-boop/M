@@ -65,6 +65,7 @@ import com.example.data.model.Series
 import com.example.data.model.VodMovie
 import com.example.localization.LocalKrasStrings
 import com.example.ui.glass.GlassBadge
+import com.example.ui.glass.glassBackground
 import com.example.ui.glass.liquidGlass
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.GoldStar
@@ -214,46 +215,28 @@ fun MovieDetailSheet(
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Action Buttons: Play Movie & Add to Favorites
+                        // Liquid Glass Action Buttons
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Button(
+                            LiquidGlassButton(
+                                text = strings.playMovie,
+                                icon = Icons.Default.PlayArrow,
+                                isPrimary = true,
+                                testTag = "movie_play_button",
                                 onClick = { onPlayClick(movie) },
-                                modifier = Modifier
-                                    .testTag("movie_play_button")
-                                    .weight(1f)
-                                    .height(50.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = KrasRed,
-                                    contentColor = Color.White
-                                )
-                            ) {
-                                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = strings.playMovie, fontWeight = FontWeight.Bold)
-                            }
+                                modifier = Modifier.weight(1f)
+                            )
 
-                            OutlinedButton(
+                            LiquidGlassButton(
+                                text = if (isFavorite) strings.removeFromFavorites else strings.addToFavorites,
+                                icon = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                isPrimary = false,
+                                testTag = "movie_favorite_button",
                                 onClick = { onToggleFavorite(movie) },
-                                modifier = Modifier
-                                    .testTag("movie_favorite_button")
-                                    .height(50.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = if (isFavorite) KrasRedBright else TextPrimary
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    contentDescription = null,
-                                    tint = if (isFavorite) KrasRedBright else TextPrimary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isFavorite) strings.removeFromFavorites else strings.addToFavorites)
-                            }
+                                modifier = Modifier.weight(1f)
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
@@ -395,20 +378,15 @@ fun SeriesDetailSheet(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Favorite button
-                        OutlinedButton(
+                        // Liquid Glass Favorite Button
+                        LiquidGlassButton(
+                            text = if (isFavorite) strings.removeFromFavorites else strings.addToFavorites,
+                            icon = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            isPrimary = isFavorite,
+                            testTag = "series_favorite_button",
                             onClick = { onToggleFavorite(series) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = null,
-                                tint = if (isFavorite) KrasRedBright else TextPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = if (isFavorite) strings.removeFromFavorites else strings.addToFavorites)
-                        }
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -453,17 +431,19 @@ fun SeriesDetailSheet(
                     }
                 }
 
-                // Episodes List
+                // Episodes List in Liquid Glass Cards
                 if (activeSeason != null) {
                     items(activeSeason.episodes) { episode ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 20.dp, vertical = 6.dp)
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(14.dp),
-                                    backgroundColor = Color(0xFF141720),
-                                    elevation = 2.dp
+                                .glassBackground(
+                                    shape = RoundedCornerShape(16.dp),
+                                    backgroundColor = Color(0xD8131722),
+                                    borderColor = Color.White.copy(alpha = 0.22f),
+                                    elevation = 3.dp,
+                                    highlightIntensity = 0.18f
                                 )
                                 .clickable { onPlayEpisode(series, activeSeason, episode) }
                                 .padding(12.dp)

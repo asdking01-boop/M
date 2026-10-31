@@ -7,11 +7,14 @@ import android.content.pm.ActivityInfo
 import android.os.Build
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,8 +36,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
@@ -48,12 +49,9 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -70,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -83,7 +82,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -95,10 +93,9 @@ import com.example.data.model.Episode
 import com.example.data.model.PlayerAspectRatio
 import com.example.data.model.VideoQualityOption
 import com.example.localization.LocalKrasStrings
-import com.example.ui.glass.GlassBadge
-import com.example.ui.glass.liquidGlass
+import com.example.ui.components.findActivity
+import com.example.ui.glass.glassBackground
 import com.example.ui.theme.GlassWhiteStroke
-import com.example.ui.theme.KrasBlack
 import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.LiveRed
@@ -106,12 +103,6 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.viewmodel.PlayerLaunchArgs
 import kotlinx.coroutines.delay
-
-fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -129,26 +120,21 @@ fun PlayerScreen(
     val strings = LocalKrasStrings.current
     val activity = remember(context) { context.findActivity() }
 
-    // ExoPlayer Instance
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
         }
     }
 
-    // Playback state
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
-    var bufferedPositionMs by remember { mutableLongStateOf(0L) }
 
-    // Controls visibility & lock
     var areControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by remember { mutableStateOf(false) }
 
-    // Aspect Ratio & Sizing
     var currentAspectRatio by remember {
         mutableStateOf(
             try {
@@ -159,25 +145,17 @@ fun PlayerScreen(
         )
     }
 
-    // Panels state
     var showChannelDrawer by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
-    var showAudioDialog by remember { mutableStateOf(false) }
-    var showSubtitleDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
 
-    // Genuine Quality and Tracks
     var availableQualities by remember { mutableStateOf<List<VideoQualityOption>>(emptyList()) }
     var selectedQualityId by remember { mutableStateOf("auto") }
     var currentSpeed by remember { mutableFloatStateOf(1.0f) }
 
-    // Auto-play next countdown
     var autoPlayCountdown by remember { mutableIntStateOf(-1) }
-
-    // Orientation toggle helper
     var isLandscape by remember { mutableStateOf(false) }
 
-    // Initialize playback
     LaunchedEffect(args.streamUrl) {
         errorMessage = null
         isBuffering = true
@@ -195,7 +173,6 @@ fun PlayerScreen(
         }
     }
 
-    // Player Listener
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -229,7 +206,6 @@ fun PlayerScreen(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
-                // Genuine video quality tracks extraction
                 val qualityList = mutableListOf<VideoQualityOption>()
                 qualityList.add(VideoQualityOption("auto", strings.qualityAuto, 0, isAuto = true))
 
@@ -276,11 +252,9 @@ fun PlayerScreen(
         }
     }
 
-    // Progress tick & save
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(0L)
             if (args.type != ContentType.LIVE_CHANNEL && durationMs > 0) {
                 onProgressUpdate(currentPositionMs, durationMs)
@@ -289,7 +263,6 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls after 4 seconds
     LaunchedEffect(areControlsVisible, isPlaying) {
         if (areControlsVisible && isPlaying && !isScreenLocked) {
             delay(4500L)
@@ -297,7 +270,6 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-play next countdown timer
     LaunchedEffect(autoPlayCountdown) {
         if (autoPlayCountdown > 0) {
             delay(1000L)
@@ -323,14 +295,10 @@ fun PlayerScreen(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (!isScreenLocked) {
-                    areControlsVisible = !areControlsVisible
-                } else {
-                    areControlsVisible = true // allow unlocking
-                }
+                areControlsVisible = !areControlsVisible
             }
     ) {
-        // ExoPlayer Surface View
+        // ExoPlayer Surface
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -347,19 +315,24 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Buffering Indicator
+        // Loading Indicator with Liquid Glass background
         if (isBuffering && errorMessage == null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x99000000)),
+                    .size(68.dp)
+                    .glassBackground(
+                        shape = CircleShape,
+                        backgroundColor = Color(0xB30A0D14),
+                        borderColor = Color.White.copy(alpha = 0.35f),
+                        elevation = 8.dp
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
                     color = KrasRedBright,
-                    strokeWidth = 3.dp
+                    strokeWidth = 3.2.dp,
+                    modifier = Modifier.size(34.dp)
                 )
             }
         }
@@ -370,10 +343,11 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(16.dp),
-                        backgroundColor = Color(0xF012141C),
-                        borderColor = LiveRed
+                    .glassBackground(
+                        shape = RoundedCornerShape(20.dp),
+                        backgroundColor = Color(0xF20F1218),
+                        borderColor = LiveRed,
+                        elevation = 12.dp
                     )
                     .padding(20.dp)
             ) {
@@ -384,18 +358,23 @@ fun PlayerScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(KrasRed)
+                            .glassBackground(
+                                shape = RoundedCornerShape(12.dp),
+                                backgroundColor = KrasRed,
+                                borderColor = KrasRedBright,
+                                hasRedGlow = true,
+                                elevation = 6.dp
+                            )
                             .clickable {
                                 errorMessage = null
                                 isBuffering = true
                                 exoPlayer.prepare()
                                 exoPlayer.play()
                             }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 20.dp, vertical = 9.dp)
                     ) {
                         Text(text = strings.retry, color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -403,57 +382,7 @@ fun PlayerScreen(
             }
         }
 
-        // Auto-play Next Episode Countdown Dialog
-        if (autoPlayCountdown > 0 && args.nextEpisode != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(24.dp)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        backgroundColor = Color(0xF210131A),
-                        borderColor = KrasRed
-                    )
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "${strings.nextEpisode} in $autoPlayCountdown...",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = args.nextEpisode.title,
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(KrasRed)
-                                .clickable { onEpisodeChange(args.nextEpisode) }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(text = strings.play, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0x33FFFFFF))
-                                .clickable { autoPlayCountdown = -1 }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(text = strings.close, color = Color.White, fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Controls Overlay
+        // Liquid Glass Controls Overlay
         AnimatedVisibility(
             visible = areControlsVisible,
             enter = fadeIn(),
@@ -462,26 +391,29 @@ fun PlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0x66000000))
+                    .background(Color(0x4D000000))
             ) {
-                // Top Control Bar
+                // Floating Top Liquid Glass Bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xD9000000), Color.Transparent)
-                            )
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .glassBackground(
+                            shape = RoundedCornerShape(22.dp),
+                            backgroundColor = Color(0xD80D1017),
+                            borderColor = Color.White.copy(alpha = 0.30f),
+                            elevation = 10.dp,
+                            highlightIntensity = 0.25f
                         )
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Back Button & Content Title
+                        // Back & Title
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
@@ -490,14 +422,19 @@ fun PlayerScreen(
                                 onClick = onClose,
                                 modifier = Modifier
                                     .testTag("player_back_button")
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x44000000))
+                                    .size(38.dp)
+                                    .glassBackground(
+                                        shape = CircleShape,
+                                        backgroundColor = Color(0x331E2330),
+                                        borderColor = Color.White.copy(alpha = 0.30f),
+                                        elevation = 2.dp
+                                    )
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back",
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
@@ -507,7 +444,7 @@ fun PlayerScreen(
                                 Text(
                                     text = if (args.seriesTitle.isNotEmpty()) args.seriesTitle else args.title,
                                     color = Color.White,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -516,7 +453,7 @@ fun PlayerScreen(
                                     Text(
                                         text = "S${args.seasonNum} : E${args.episodeNum} - ${args.title}",
                                         color = KrasRedBright,
-                                        fontSize = 12.sp,
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 } else if (args.type == ContentType.LIVE_CHANNEL) {
@@ -528,15 +465,17 @@ fun PlayerScreen(
                                                 .background(LiveRed)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text(text = "LIVE", color = LiveRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(text = "LIVE", color = LiveRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
                         }
 
-                        // Top Action Icons: PiP, Aspect Ratio, Speed, Channels Menu
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Quick Live Channels Drawer toggle
+                        // Floating action icons
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             if (args.type == ContentType.LIVE_CHANNEL && liveChannels.isNotEmpty()) {
                                 IconButton(
                                     onClick = { showChannelDrawer = !showChannelDrawer },
@@ -545,12 +484,12 @@ fun PlayerScreen(
                                     Icon(
                                         imageVector = Icons.Default.Menu,
                                         contentDescription = strings.quickChannels,
-                                        tint = if (showChannelDrawer) KrasRedBright else Color.White
+                                        tint = if (showChannelDrawer) KrasRedBright else Color.White,
+                                        modifier = Modifier.size(19.dp)
                                     )
                                 }
                             }
 
-                            // Aspect Ratio Toggle
                             IconButton(
                                 onClick = {
                                     currentAspectRatio = when (currentAspectRatio) {
@@ -565,11 +504,11 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.AspectRatio,
                                     contentDescription = strings.aspectRatio,
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
 
-                            // Video Quality Picker
                             IconButton(
                                 onClick = { showQualityDialog = true },
                                 modifier = Modifier.size(36.dp)
@@ -577,11 +516,11 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.HighQuality,
                                     contentDescription = strings.quality,
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
 
-                            // Playback Speed
                             IconButton(
                                 onClick = { showSpeedDialog = true },
                                 modifier = Modifier.size(36.dp)
@@ -589,11 +528,11 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.Speed,
                                     contentDescription = strings.playbackSpeed,
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
 
-                            // PiP Support
                             IconButton(
                                 onClick = {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -610,11 +549,11 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.PictureInPictureAlt,
                                     contentDescription = strings.pipMode,
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
 
-                            // Rotation
                             IconButton(
                                 onClick = {
                                     isLandscape = !isLandscape
@@ -629,14 +568,15 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.ScreenRotation,
                                     contentDescription = "Rotate",
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                // Middle Center: Rewind 10s, Play/Pause, Forward 10s
+                // Middle Center: Rewind, Liquid Glass Play/Pause, Forward
                 if (!isScreenLocked) {
                     Row(
                         modifier = Modifier
@@ -645,52 +585,41 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(32.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Previous Episode / Rewind 10s
-                        if (args.type == ContentType.EPISODE && args.prevEpisode != null) {
-                            IconButton(
-                                onClick = { onEpisodeChange(args.prevEpisode) },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x55000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SkipPrevious,
-                                    contentDescription = strings.prevEpisode,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
+                        IconButton(
+                            onClick = { exoPlayer.seekTo((exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)) },
+                            modifier = Modifier
+                                .size(50.dp)
+                                .glassBackground(
+                                    shape = CircleShape,
+                                    backgroundColor = Color(0xB30B0E14),
+                                    borderColor = Color.White.copy(alpha = 0.30f),
+                                    elevation = 6.dp
                                 )
-                            }
-                        } else {
-                            IconButton(
-                                onClick = { exoPlayer.seekTo((exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)) },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x55000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Replay10,
-                                    contentDescription = strings.rewind10,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Replay10,
+                                contentDescription = strings.rewind10,
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
 
-                        // Play / Pause Main Button
+                        // Glowing Liquid Glass Play/Pause Core Button
                         Box(
                             modifier = Modifier
                                 .testTag("player_play_pause_button")
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(KrasRed)
+                                .size(74.dp)
+                                .glassBackground(
+                                    shape = CircleShape,
+                                    backgroundColor = KrasRed.copy(alpha = 0.92f),
+                                    borderColor = KrasRedBright,
+                                    borderWidth = 1.5.dp,
+                                    hasRedGlow = true,
+                                    elevation = 16.dp,
+                                    highlightIntensity = 0.45f
+                                )
                                 .clickable {
-                                    if (exoPlayer.isPlaying) {
-                                        exoPlayer.pause()
-                                    } else {
-                                        exoPlayer.play()
-                                    }
+                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -702,55 +631,43 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Next Episode / Forward 10s
-                        if (args.type == ContentType.EPISODE && args.nextEpisode != null) {
-                            IconButton(
-                                onClick = { onEpisodeChange(args.nextEpisode) },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x55000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SkipNext,
-                                    contentDescription = strings.nextEpisode,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
+                        IconButton(
+                            onClick = { exoPlayer.seekTo((exoPlayer.currentPosition + 10000L).coerceAtMost(durationMs)) },
+                            modifier = Modifier
+                                .size(50.dp)
+                                .glassBackground(
+                                    shape = CircleShape,
+                                    backgroundColor = Color(0xB30B0E14),
+                                    borderColor = Color.White.copy(alpha = 0.30f),
+                                    elevation = 6.dp
                                 )
-                            }
-                        } else {
-                            IconButton(
-                                onClick = { exoPlayer.seekTo((exoPlayer.currentPosition + 10000L).coerceAtMost(durationMs)) },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x55000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Forward10,
-                                    contentDescription = strings.forward10,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Forward10,
+                                contentDescription = strings.forward10,
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
                     }
                 }
 
-                // Bottom Timeline Scrubber and Controls
+                // Floating Bottom Liquid Glass Scrub & Timeline Panel
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color(0xE6000000))
-                            )
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                        .glassBackground(
+                            shape = RoundedCornerShape(24.dp),
+                            backgroundColor = Color(0xD80D1017),
+                            borderColor = Color.White.copy(alpha = 0.30f),
+                            elevation = 12.dp,
+                            highlightIntensity = 0.25f
                         )
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Slider progress for VOD / Series
                         if (args.type != ContentType.LIVE_CHANNEL && durationMs > 0) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -776,7 +693,7 @@ fun PlayerScreen(
                                     colors = SliderDefaults.colors(
                                         thumbColor = KrasRedBright,
                                         activeTrackColor = KrasRed,
-                                        inactiveTrackColor = Color(0x55FFFFFF)
+                                        inactiveTrackColor = Color(0x33FFFFFF)
                                     )
                                 )
 
@@ -788,7 +705,6 @@ fun PlayerScreen(
                                 )
                             }
                         } else {
-                            // Live TV Status indicator
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -803,7 +719,7 @@ fun PlayerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "LIVE STREAM",
+                                        text = "LIVE TRANSMISSION",
                                         color = Color.White,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -820,50 +736,49 @@ fun PlayerScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // Bottom Actions: Screen Lock, Audio, Subtitles
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Screen Lock Button
                             IconButton(
                                 onClick = { isScreenLocked = !isScreenLocked },
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
                                     imageVector = if (isScreenLocked) Icons.Default.Lock else Icons.Default.LockOpen,
                                     contentDescription = "Screen Lock",
-                                    tint = if (isScreenLocked) KrasRedBright else Color.White
+                                    tint = if (isScreenLocked) KrasRedBright else Color.White,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Text(
-                                    text = currentAspectRatio.name,
-                                    color = TextSecondary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
+                            Text(
+                                text = "KRAS LIQUID PLAYER",
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Live Channels Quick Switcher Side Drawer
+        // Floating Liquid Glass Side Drawer for Live Channels
         if (showChannelDrawer && args.type == ContentType.LIVE_CHANNEL) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(280.dp)
+                    .width(285.dp)
                     .align(Alignment.CenterStart)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
-                        backgroundColor = Color(0xF20B0C0E),
-                        borderColor = GlassWhiteStroke.copy(alpha = 0.3f),
-                        elevation = 12.dp
+                    .glassBackground(
+                        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                        backgroundColor = Color(0xF20C0F16),
+                        borderColor = Color.White.copy(alpha = 0.32f),
+                        elevation = 16.dp,
+                        highlightIntensity = 0.28f
                     )
                     .padding(16.dp)
             ) {
@@ -884,7 +799,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(liveChannels) { ch ->
@@ -892,8 +807,12 @@ fun PlayerScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isCurrent) Color(0x33E50914) else Color(0x221E222B))
+                                    .glassBackground(
+                                        shape = RoundedCornerShape(12.dp),
+                                        backgroundColor = if (isCurrent) Color(0x44E50914) else Color(0x221E2330),
+                                        borderColor = if (isCurrent) KrasRed else Color.White.copy(alpha = 0.15f),
+                                        elevation = 2.dp
+                                    )
                                     .clickable {
                                         showChannelDrawer = false
                                         onChannelChange(ch)
@@ -931,16 +850,19 @@ fun PlayerScreen(
             }
         }
 
-        // Quality Dialog
+        // Floating Liquid Glass Quality Modal
         if (showQualityDialog) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(280.dp)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
+                    .glassBackground(
+                        shape = RoundedCornerShape(22.dp),
                         backgroundColor = Color(0xF20F1218),
-                        borderColor = KrasRed
+                        borderColor = KrasRed,
+                        borderWidth = 1.2.dp,
+                        hasRedGlow = true,
+                        elevation = 16.dp
                     )
                     .padding(18.dp)
             ) {
@@ -955,7 +877,7 @@ fun PlayerScreen(
                             Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     val qualities = availableQualities.ifEmpty {
                         listOf(VideoQualityOption("auto", strings.qualityAuto, 0, isAuto = true))
@@ -966,7 +888,7 @@ fun PlayerScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) Color(0x33E50914) else Color.Transparent)
                                 .clickable {
                                     selectedQualityId = option.id
@@ -991,16 +913,19 @@ fun PlayerScreen(
             }
         }
 
-        // Playback Speed Dialog
+        // Floating Liquid Glass Speed Modal
         if (showSpeedDialog) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(240.dp)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
+                    .glassBackground(
+                        shape = RoundedCornerShape(22.dp),
                         backgroundColor = Color(0xF20F1218),
-                        borderColor = KrasRed
+                        borderColor = KrasRed,
+                        borderWidth = 1.2.dp,
+                        hasRedGlow = true,
+                        elevation = 16.dp
                     )
                     .padding(18.dp)
             ) {
@@ -1015,14 +940,14 @@ fun PlayerScreen(
                             Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { speed ->
                         val isSelected = currentSpeed == speed
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) Color(0x33E50914) else Color.Transparent)
                                 .clickable {
                                     currentSpeed = speed

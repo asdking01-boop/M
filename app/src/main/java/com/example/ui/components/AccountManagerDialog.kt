@@ -313,7 +313,7 @@ fun AccountManagerDialog(
                                         Spacer(modifier = Modifier.height(4.dp))
 
                                         Text(
-                                            text = "${account.channelsCount} Channels • ${account.moviesCount} VOD",
+                                            text = "${account.channelsCount} Channels • ${account.moviesCount} Movies • ${account.seriesCount} Series",
                                             fontSize = 12.sp,
                                             color = TextSecondary
                                         )

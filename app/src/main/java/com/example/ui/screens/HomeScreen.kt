@@ -201,7 +201,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(channels.take(6)) { channel ->
+                        items(channels, key = { it.id }) { channel ->
                             Box(
                                 modifier = Modifier
                                     .width(220.dp)

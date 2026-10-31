@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,10 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,11 +31,13 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,6 +53,7 @@ import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun MoviesScreen(
@@ -68,12 +74,39 @@ fun MoviesScreen(
 
     val selectedCategory = categories.getOrNull(selectedCategoryIndex) ?: strings.filterAll
 
-    val filteredMovies = movies.filter { mov ->
-        val matchesCategory = selectedCategoryIndex == 0 || mov.genre.contains(selectedCategory, ignoreCase = true)
-        val matchesSearch = searchQuery.isBlank() ||
-                mov.title.contains(searchQuery, ignoreCase = true) ||
-                mov.genre.contains(searchQuery, ignoreCase = true)
-        matchesCategory && matchesSearch
+    // Memoized filter for 10,000+ movies
+    val filteredMovies = remember(movies, selectedCategoryIndex, selectedCategory, searchQuery) {
+        movies.filter { mov ->
+            val matchesCategory = selectedCategoryIndex == 0 || mov.genre.contains(selectedCategory, ignoreCase = true)
+            val matchesSearch = searchQuery.isBlank() ||
+                    mov.title.contains(searchQuery, ignoreCase = true) ||
+                    mov.genre.contains(searchQuery, ignoreCase = true)
+            matchesCategory && matchesSearch
+        }
+    }
+
+    // Incremental loading state
+    var displayedCount by remember(selectedCategoryIndex, searchQuery) { mutableIntStateOf(60) }
+    val gridState = rememberLazyGridState()
+
+    LaunchedEffect(gridState, filteredMovies.size) {
+        snapshotFlow {
+            val totalItems = gridState.layoutInfo.totalItemsCount
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible to totalItems
+        }.distinctUntilChanged().collect { (lastVisible, totalItems) ->
+            if (totalItems > 0 && lastVisible >= totalItems - 15 && displayedCount < filteredMovies.size) {
+                displayedCount = (displayedCount + 60).coerceAtMost(filteredMovies.size)
+            }
+        }
+    }
+
+    val visibleMovies = remember(filteredMovies, displayedCount) {
+        if (displayedCount >= filteredMovies.size) {
+            filteredMovies
+        } else {
+            filteredMovies.subList(0, displayedCount)
+        }
     }
 
     Column(
@@ -90,7 +123,13 @@ fun MoviesScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text(strings.searchHint, color = TextSecondary, fontSize = 13.sp) },
+                placeholder = {
+                    Text(
+                        text = "${strings.searchHint} (${movies.size})",
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    )
+                },
                 leadingIcon = {
                     Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                 },
@@ -161,12 +200,13 @@ fun MoviesScreen(
             }
         } else {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Adaptive(minSize = 130.dp),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(filteredMovies, key = { it.id }) { movie ->
+                items(visibleMovies, key = { it.id }) { movie ->
                     MoviePosterCard(
                         movie = movie,
                         onClick = { onMovieClick(movie) },
@@ -174,6 +214,23 @@ fun MoviesScreen(
                         isFavorite = isFavorite(movie.id),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                if (displayedCount < filteredMovies.size) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = KrasRedBright,
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
                 }
             }
         }

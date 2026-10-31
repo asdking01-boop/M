@@ -13,16 +13,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,8 +47,10 @@ import com.example.ui.components.SeriesPosterCard
 import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
 import com.example.ui.theme.KrasRed
+import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun SearchScreen(
@@ -58,19 +68,54 @@ fun SearchScreen(
 ) {
     val strings = LocalKrasStrings.current
 
-    val matchingChannels = if (searchQuery.isNotBlank()) {
-        channels.filter { it.name.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true) }
-    } else emptyList()
+    // Memoize search matches for fast, stutter-free performance with 10,000+ items
+    val matchingChannels = remember(searchQuery, channels) {
+        if (searchQuery.isNotBlank()) {
+            channels.filter { it.name.contains(searchQuery, ignoreCase = true) || it.category.contains(searchQuery, ignoreCase = true) }
+        } else emptyList()
+    }
 
-    val matchingMovies = if (searchQuery.isNotBlank()) {
-        movies.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
-    } else emptyList()
+    val matchingMovies = remember(searchQuery, movies) {
+        if (searchQuery.isNotBlank()) {
+            movies.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
+        } else emptyList()
+    }
 
-    val matchingSeries = if (searchQuery.isNotBlank()) {
-        series.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
-    } else emptyList()
+    val matchingSeries = remember(searchQuery, series) {
+        if (searchQuery.isNotBlank()) {
+            series.filter { it.title.contains(searchQuery, ignoreCase = true) || it.genre.contains(searchQuery, ignoreCase = true) }
+        } else emptyList()
+    }
 
     val totalMatches = matchingChannels.size + matchingMovies.size + matchingSeries.size
+
+    // Incremental loading state
+    var displayedLimit by remember(searchQuery) { mutableIntStateOf(50) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(listState, totalMatches) {
+        snapshotFlow {
+            val total = listState.layoutInfo.totalItemsCount
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last to total
+        }.distinctUntilChanged().collect { (last, total) ->
+            if (total > 0 && last >= total - 10 && displayedLimit < totalMatches) {
+                displayedLimit = (displayedLimit + 50).coerceAtMost(totalMatches)
+            }
+        }
+    }
+
+    val visibleChannels = remember(matchingChannels, displayedLimit) {
+        if (displayedLimit >= matchingChannels.size) matchingChannels else matchingChannels.subList(0, displayedLimit)
+    }
+
+    val visibleMovies = remember(matchingMovies, displayedLimit) {
+        if (displayedLimit >= matchingMovies.size) matchingMovies else matchingMovies.subList(0, displayedLimit)
+    }
+
+    val visibleSeries = remember(matchingSeries, displayedLimit) {
+        if (displayedLimit >= matchingSeries.size) matchingSeries else matchingSeries.subList(0, displayedLimit)
+    }
 
     Column(
         modifier = modifier
@@ -141,6 +186,7 @@ fun SearchScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -154,7 +200,7 @@ fun SearchScreen(
                             color = TextPrimary
                         )
                     }
-                    items(matchingChannels) { ch ->
+                    items(visibleChannels, key = { it.id }) { ch ->
                         ChannelItemCard(
                             channel = ch,
                             onClick = { onChannelClick(ch) },
@@ -174,7 +220,7 @@ fun SearchScreen(
                             color = TextPrimary
                         )
                     }
-                    items(matchingMovies) { mov ->
+                    items(visibleMovies, key = { it.id }) { mov ->
                         MoviePosterCard(
                             movie = mov,
                             onClick = { onMovieClick(mov) },
@@ -193,12 +239,29 @@ fun SearchScreen(
                             color = TextPrimary
                         )
                     }
-                    items(matchingSeries) { ser ->
+                    items(visibleSeries, key = { it.id }) { ser ->
                         SeriesPosterCard(
                             series = ser,
                             onClick = { onSeriesClick(ser) },
                             modifier = Modifier.fillMaxWidth()
                         )
+                    }
+                }
+
+                if (displayedLimit < totalMatches) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = KrasRedBright,
+                                strokeWidth = 2.dp
+                            )
+                        }
                     }
                 }
             }
