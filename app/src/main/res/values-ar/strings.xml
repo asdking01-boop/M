@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">KRAS TV</string>
+    <string name="tagline">تلفزيون سينمائي متميز</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_live">البث المباشر</string>
+    <string name="nav_movies">الأفلام</string>
+    <string name="nav_series">المسلسلات</string>
+    <string name="nav_favorites">المفضلة</string>
+    <string name="nav_settings">الإعدادات</string>
+</resources>

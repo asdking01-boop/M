@@ -1,0 +1,6 @@
+{
+  "name": "KRAS TV",
+  "description": "Premium Android IPTV streaming application featuring Liquid Glass UI, Live TV with EPG, Movies, Series, Media3 ExoPlayer, and bilingual Arabic/English support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
