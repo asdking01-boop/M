@@ -7,14 +7,11 @@ import android.content.pm.ActivityInfo
 import android.os.Build
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,8 +43,6 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -68,8 +63,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -93,13 +86,10 @@ import com.example.data.model.Episode
 import com.example.data.model.PlayerAspectRatio
 import com.example.data.model.VideoQualityOption
 import com.example.localization.LocalKrasStrings
-import com.example.ui.components.findActivity
 import com.example.ui.glass.glassBackground
-import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasRed
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.LiveRed
-import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.viewmodel.PlayerLaunchArgs
 import kotlinx.coroutines.delay
@@ -315,7 +305,7 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Loading Indicator with Liquid Glass background
+        // Loading Indicator
         if (isBuffering && errorMessage == null) {
             Box(
                 modifier = Modifier
@@ -382,7 +372,7 @@ fun PlayerScreen(
             }
         }
 
-        // Liquid Glass Controls Overlay
+        // Controls Overlay
         AnimatedVisibility(
             visible = areControlsVisible,
             enter = fadeIn(),
@@ -393,7 +383,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .background(Color(0x4D000000))
             ) {
-                // Floating Top Liquid Glass Bar
+                // Top Bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -471,7 +461,7 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Floating action icons
+                        // Action icons
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -576,7 +566,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // Middle Center: Rewind, Liquid Glass Play/Pause, Forward
+                // Middle: Rewind, Play/Pause, Forward
                 if (!isScreenLocked) {
                     Row(
                         modifier = Modifier
@@ -604,7 +594,6 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Glowing Liquid Glass Play/Pause Core Button
                         Box(
                             modifier = Modifier
                                 .testTag("player_play_pause_button")
@@ -652,7 +641,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // Floating Bottom Liquid Glass Scrub & Timeline Panel
+                // Bottom Panel
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -766,7 +755,7 @@ fun PlayerScreen(
             }
         }
 
-        // Floating Liquid Glass Side Drawer for Live Channels
+        // Side Drawer for Live Channels
         if (showChannelDrawer && args.type == ContentType.LIVE_CHANNEL) {
             Box(
                 modifier = Modifier
@@ -850,7 +839,7 @@ fun PlayerScreen(
             }
         }
 
-        // Floating Liquid Glass Quality Modal
+        // Quality Modal
         if (showQualityDialog) {
             Box(
                 modifier = Modifier
@@ -913,7 +902,7 @@ fun PlayerScreen(
             }
         }
 
-        // Floating Liquid Glass Speed Modal
+        // Speed Modal
         if (showSpeedDialog) {
             Box(
                 modifier = Modifier
@@ -986,15 +975,12 @@ private fun formatDuration(millis: Long): String {
         String.format("%02d:%02d", minutes, seconds)
     }
 }
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 
-fun Context.findActivity(): Activity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
     }
     return null
 }
