@@ -1,4 +1,4 @@
-name: Build IPTV APK (Clean Guarantee)
+name: Build IPTV APK (Working Fix)
 
 on:
   push:
@@ -24,15 +24,12 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Prepare Web Files & Clean Environment
+      - name: Prepare Web Files
         run: |
-          # محاولة بناء المشروع الأصلي إن أمكن
           if [ -f "package.json" ]; then
             npm install --legacy-peer-deps --force || true
             npx vite build || npm run build || true
           fi
-
-          # جمع ملفات الويب الجاهزة في مجلد مستقل ونظيف
           mkdir -p /tmp/web_out
           if [ -d "dist" ] && [ -f "dist/index.html" ]; then
             cp -r dist/* /tmp/web_out/
@@ -41,42 +38,7 @@ jobs:
           else
             find . -maxdepth 2 -not -path '*/.*' -not -path './node_modules*' -not -path './android*' -exec cp -r {} /tmp/web_out/ \; 2>/dev/null || true
           fi
-
-          # ضمان وجود ملف index.html في الواجهة
           if [ ! -f "/tmp/web_out/index.html" ]; then
             HTML_FILE=$(find /tmp/web_out -name "index.html" | head -n 1)
             if [ -n "$HTML_FILE" ]; then
-              cp -r $(dirname "$HTML_FILE")/* /tmp/web_out/
-            else
-              echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Kras TV</title></head><body style='background:#000;color:#fff;'><h1>Kras TV</h1></body></html>" > /tmp/web_out/index.html
-            fi
-          fi
-
-      - name: Build Android Project via Capacitor
-        run: |
-          mkdir -p /tmp/cap_builder
-          cd /tmp/cap_builder
-          npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          mkdir -p www
-          cp -r /tmp/web_out/* www/
-
-          cat << 'EOF' > capacitor.config.json
-          {
-            "appId": "com.kras.iptv",
-            "appName": "Kras TV",
-            "webDir": "www",
-            "bundledWebRuntime": false
-          }
-          EOF
-
-          npx cap add android
-          chmod +x android/gradlew
-          cd android
-          ./gradlew assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: IPTV-App-APK
-          path: /tmp/cap_builder/android/app/build/outputs/apk/debug/app-debug.apk
+              cp -r $(dirname "$HTML_
