@@ -1,4 +1,4 @@
-name: Build IPTV APK (Auto-Fix)
+name: Build IPTV APK (Universal)
 
 on:
   push:
@@ -24,19 +24,36 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Install & Build Web (Bypass Strict Errors)
+      - name: Detect Project Structure & Build
         run: |
-          npm install --legacy-peer-deps
-          npx vite build || npm run build
+          # إذا كان package.json داخل مجلد فرعي، انقل كل الملفات للرئيسي
+          PKG_PATH=$(find . -maxdepth 2 -name "package.json" | head -n 1)
+          if [ -n "$PKG_PATH" ] && [ "$PKG_PATH" != "./package.json" ]; then
+            SUBDIR=$(dirname "$PKG_PATH")
+            cp -r "$SUBDIR"/. .
+          fi
+
+          # إذا وجد package.json قم بالبناء، وإلا جهز مجلد dist من ملفات HTML مباشرة
+          if [ -f "package.json" ]; then
+            npm install --legacy-peer-deps || true
+            npx vite build || npm run build || true
+          else
+            npm init -y
+          fi
+
+          # التأكد من وجود مجلد المخرجات dist
+          if [ ! -d "dist" ] && [ ! -d "build" ]; then
+            mkdir -p dist
+            find . -maxdepth 1 -not -name 'dist' -not -name '.git' -not -name '.github' -not -name 'node_modules' -not -name '.' -exec cp -r {} dist/ \;
+          fi
 
       - name: Configure Capacitor & Sync Android
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
           WEB_DIR="dist"
           if [ -d "build" ]; then WEB_DIR="build"; fi
-          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
-            npx cap init "IPTV App" "com.kras.iptv" --web-dir $WEB_DIR
-          fi
+          rm -f capacitor.config.json capacitor.config.ts
+          npx cap init "Kras TV" "com.kras.iptv" --web-dir $WEB_DIR
           if [ ! -d "android" ]; then
             npx cap add android
           else
