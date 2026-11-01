@@ -1,4 +1,4 @@
-name: Build APK Direct
+name: Build APK Final
 
 on:
   push:
@@ -24,9 +24,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Build Web and APK
         run: |
           npm install --legacy-peer-deps || true
@@ -39,8 +36,9 @@ jobs:
           npm init -y
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           cp -r /tmp/www ./www
-          npx cap init "Kras TV" "com.kras.iptv" --web-dir www
+          echo '{"appId":"com.kras.iptv","appName":"Kras TV","webDir":"www","server":{"androidScheme":"http","cleartext":true}}' > capacitor.config.json
           npx cap add android
+          npx cap sync android
           chmod +x android/gradlew
           cd android
           ./gradlew assembleDebug
