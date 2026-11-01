@@ -99,7 +99,8 @@ data class VodMovie(
     val durationSeconds: Long = 6840L,
     val rating: String = "8.6",
     val description: String = "",
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val added: Long = 0L
 )
 
 data class Episode(

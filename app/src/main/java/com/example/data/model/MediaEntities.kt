@@ -32,6 +32,9 @@ data class LiveChannelItem(
     indices = [
         Index(value = ["accountId"]),
         Index(value = ["genre"]),
+        Index(value = ["year"]),
+        Index(value = ["rating"]),
+        Index(value = ["added"]),
         Index(value = ["title"])
     ]
 )
@@ -44,10 +47,15 @@ data class VodMovieItem(
     val posterUrl: String = "",
     val genre: String = "Movies",
     val year: String = "2024",
-    val rating: String = "8.0"
+    val rating: String = "8.0",
+    val added: Long = 0L
 ) {
     @get:Ignore
     val categoryName: String get() = genre
+
+    @get:Ignore
+    val isNew: Boolean
+        get() = added > 0 && (System.currentTimeMillis() - added) <= 10L * 24L * 60L * 60L * 1000L
 }
 
 @Entity(
@@ -55,6 +63,9 @@ data class VodMovieItem(
     indices = [
         Index(value = ["accountId"]),
         Index(value = ["genre"]),
+        Index(value = ["year"]),
+        Index(value = ["rating"]),
+        Index(value = ["added"]),
         Index(value = ["title"])
     ]
 )
@@ -66,11 +77,16 @@ data class SeriesItem(
     val posterUrl: String = "",
     val genre: String = "Series",
     val year: String = "2024",
-    val rating: String = "8.5"
+    val rating: String = "8.5",
+    val added: Long = 0L
 ) {
     @get:Ignore
     val categoryName: String get() = genre
 
     @get:Ignore
     val episodeCount: Int get() = 0
+
+    @get:Ignore
+    val isNew: Boolean
+        get() = added > 0 && (System.currentTimeMillis() - added) <= 10L * 24L * 60L * 60L * 1000L
 }

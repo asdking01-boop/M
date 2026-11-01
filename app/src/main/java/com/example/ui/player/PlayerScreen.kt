@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.os.Build
+import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -239,6 +240,29 @@ fun PlayerScreen(
             exoPlayer.stop()
             exoPlayer.release()
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Keep screen awake continuously during Live TV, Movies (VOD), and Series playback without touch/remote input.
+    // Keeps screen awake during active playback, buffering, loading, and channel switching.
+    // Only releases when user explicitly pauses VOD playback or exits back to main menu / channel list.
+    val shouldKeepScreenAwake = remember(args.type, isPlaying, isBuffering) {
+        if (args.type == ContentType.LIVE_CHANNEL) {
+            true
+        } else {
+            isPlaying || isBuffering
+        }
+    }
+
+    DisposableEffect(activity, shouldKeepScreenAwake) {
+        if (shouldKeepScreenAwake) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -295,12 +319,14 @@ fun PlayerScreen(
                     player = exoPlayer
                     useController = false
                     this.resizeMode = resizeMode
+                    this.keepScreenOn = shouldKeepScreenAwake
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
             update = { playerView ->
                 playerView.player = exoPlayer
                 playerView.resizeMode = resizeMode
+                playerView.keepScreenOn = shouldKeepScreenAwake
             },
             modifier = Modifier.fillMaxSize()
         )

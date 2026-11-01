@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,34 +13,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,132 +39,103 @@ import androidx.paging.LoadState
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.data.model.VodMovieItem
+import com.example.data.model.WatchHistoryEntity
 import com.example.localization.LocalKrasStrings
+import com.example.ui.components.ContinueWatchingCard
+import com.example.ui.components.KrasDebouncedSearchBar
 import com.example.ui.components.LiquidGlassButton
+import com.example.ui.components.MediaFiltersBar
 import com.example.ui.components.MoviePosterCard
-import com.example.ui.theme.GlassWhiteStroke
 import com.example.ui.theme.KrasBlack
 import com.example.ui.theme.KrasRedBright
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 @Composable
 fun MoviesScreen(
     genres: List<String>,
-    getMoviesPager: (genre: String, query: String) -> Flow<PagingData<VodMovieItem>>,
+    years: List<String>,
+    recentlyAdded: List<VodMovieItem>,
+    latestReleases: List<VodMovieItem>,
+    topRated: List<VodMovieItem>,
+    continueWatching: List<WatchHistoryEntity>,
+    getMoviesPager: (genre: String, year: String, minRating: Double, query: String, sortMode: String) -> Flow<PagingData<VodMovieItem>>,
     onMovieClick: (VodMovieItem) -> Unit,
     onToggleFavorite: (VodMovieItem) -> Unit,
+    onResumeHistory: (WatchHistoryEntity) -> Unit,
     isFavorite: (String) -> Boolean,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalKrasStrings.current
-    var selectedCategoryIndex by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+
+    var selectedGenre by remember { mutableStateOf("") }
+    var selectedYear by remember { mutableStateOf("") }
+    var selectedRating by remember { mutableDoubleStateOf(0.0) }
     var searchQuery by remember { mutableStateOf("") }
+    var activeSortMode by remember { mutableStateOf("") } // "", "added", "year", "rating"
 
-    val allGenreLabel = strings.filterAll
-    val fullGenres = remember(genres, allGenreLabel) {
-        listOf(allGenreLabel) + genres.filter { it.isNotBlank() && it != allGenreLabel }
-    }
+    val isFilterOrSearchActive = searchQuery.isNotBlank() || selectedGenre.isNotBlank() ||
+            selectedYear.isNotBlank() || selectedRating > 0.0 || activeSortMode.isNotBlank()
 
-    val selectedGenre = fullGenres.getOrNull(selectedCategoryIndex) ?: allGenreLabel
-    val genreQueryParam = if (selectedCategoryIndex == 0) "" else selectedGenre
-
-    val pagedFlow = remember(genreQueryParam, searchQuery) {
-        getMoviesPager(genreQueryParam, searchQuery)
+    val pagedFlow = remember(selectedGenre, selectedYear, selectedRating, searchQuery, activeSortMode) {
+        getMoviesPager(selectedGenre, selectedYear, selectedRating, searchQuery, activeSortMode)
     }
     val lazyMovies = pagedFlow.collectAsLazyPagingItems()
-    val gridState = rememberLazyGridState()
+
+    fun clearAllFilters() {
+        searchQuery = ""
+        selectedGenre = ""
+        selectedYear = ""
+        selectedRating = 0.0
+        activeSortMode = ""
+    }
+
+    fun selectSection(sortMode: String) {
+        activeSortMode = sortMode
+        scope.launch {
+            gridState.animateScrollToItem(0)
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(KrasBlack)
     ) {
-        // Search Bar in Movies
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text(
-                        text = strings.searchMovies,
-                        color = TextSecondary,
-                        fontSize = 13.sp
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0x3312151D),
-                    unfocusedContainerColor = Color(0x2212151D),
-                    focusedBorderColor = KrasRedBright,
-                    unfocusedBorderColor = GlassWhiteStroke,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+        // Debounced Search Box (Requirement 1)
+        KrasDebouncedSearchBar(
+            query = searchQuery,
+            onDebouncedQuery = { searchQuery = it },
+            placeholder = strings.searchMovies
+        )
 
-        // Genre filter tab row
-        if (fullGenres.size > 1) {
-            ScrollableTabRow(
-                selectedTabIndex = selectedCategoryIndex.coerceIn(0, fullGenres.size - 1),
-                containerColor = Color.Transparent,
-                contentColor = KrasRedBright,
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    val validIndex = selectedCategoryIndex.coerceIn(0, tabPositions.size - 1)
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[validIndex]),
-                        color = KrasRedBright
-                    )
-                },
-                divider = {}
-            ) {
-                fullGenres.forEachIndexed { index, genreName ->
-                    Tab(
-                        selected = selectedCategoryIndex == index,
-                        onClick = { selectedCategoryIndex = index },
-                        text = {
-                            Text(
-                                text = genreName,
-                                fontSize = 13.sp,
-                                fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selectedCategoryIndex == index) KrasRedBright else TextSecondary
-                            )
-                        }
-                    )
-                }
-            }
-        }
+        // Horizontal Scrollable Filter Chips (Genre, Year, Rating, Clear filters) (Requirement 1)
+        MediaFiltersBar(
+            genres = genres,
+            selectedGenre = selectedGenre,
+            onSelectGenre = {
+                selectedGenre = it
+                activeSortMode = ""
+            },
+            years = years,
+            selectedYear = selectedYear,
+            onSelectYear = {
+                selectedYear = it
+                activeSortMode = ""
+            },
+            minRating = selectedRating,
+            onSelectRating = {
+                selectedRating = it
+                activeSortMode = ""
+            },
+            onClearFilters = { clearAllFilters() }
+        )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Box(modifier = Modifier.fillMaxSize()) {
             when {
@@ -217,19 +180,6 @@ fun MoviesScreen(
                     }
                 }
 
-                lazyMovies.itemCount == 0 && lazyMovies.loadState.refresh is LoadState.NotLoading -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = strings.noMoviesFound,
-                            color = TextSecondary,
-                            fontSize = 14.sp
-                        )
-                    }
-                }
-
                 else -> {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 135.dp),
@@ -239,18 +189,221 @@ fun MoviesScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(
-                            count = lazyMovies.itemCount,
-                            key = { index -> lazyMovies.peek(index)?.id ?: "mov_$index" }
-                        ) { index ->
-                            val movie = lazyMovies[index]
-                            if (movie != null) {
-                                MoviePosterCard(
-                                    movie = movie,
-                                    onClick = { onMovieClick(movie) },
-                                    onFavoriteClick = { onToggleFavorite(movie) },
-                                    isFavorite = isFavorite(movie.id)
+                        // Curated Horizontal Rows shown when not in deep search mode (Requirement 2)
+                        if (!isFilterOrSearchActive) {
+                            // Row 1: Continue Watching
+                            if (continueWatching.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                                        Text(
+                                            text = strings.continueWatching,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(continueWatching, key = { it.contentId }) { item ->
+                                                ContinueWatchingCard(
+                                                    item = item,
+                                                    onClick = { onResumeHistory(item) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Row 2: New / Recently Added (LIMIT 30 items)
+                            if (recentlyAdded.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = strings.recentlyAdded,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = strings.seeAll,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = KrasRedBright,
+                                                modifier = Modifier.clickable { selectSection("added") }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(recentlyAdded, key = { it.id }) { movie ->
+                                                MoviePosterCard(
+                                                    movie = movie,
+                                                    onClick = { onMovieClick(movie) },
+                                                    onFavoriteClick = { onToggleFavorite(movie) },
+                                                    isFavorite = isFavorite(movie.id)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Row 3: Latest Releases (LIMIT 30 items)
+                            if (latestReleases.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = strings.latestReleases,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = strings.seeAll,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = KrasRedBright,
+                                                modifier = Modifier.clickable { selectSection("year") }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(latestReleases, key = { it.id }) { movie ->
+                                                MoviePosterCard(
+                                                    movie = movie,
+                                                    onClick = { onMovieClick(movie) },
+                                                    onFavoriteClick = { onToggleFavorite(movie) },
+                                                    isFavorite = isFavorite(movie.id)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Row 4: Top Rated (LIMIT 30 items)
+                            if (topRated.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = strings.topRated,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = strings.seeAll,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = KrasRedBright,
+                                                modifier = Modifier.clickable { selectSection("rating") }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(topRated, key = { it.id }) { movie ->
+                                                MoviePosterCard(
+                                                    movie = movie,
+                                                    onClick = { onMovieClick(movie) },
+                                                    onFavoriteClick = { onToggleFavorite(movie) },
+                                                    isFavorite = isFavorite(movie.id)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Header for Full Paged List
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val sectionTitle = when {
+                                    activeSortMode == "added" -> strings.recentlyAdded
+                                    activeSortMode == "year" -> strings.latestReleases
+                                    activeSortMode == "rating" -> strings.topRated
+                                    selectedGenre.isNotBlank() -> selectedGenre
+                                    searchQuery.isNotBlank() -> strings.searchResults
+                                    else -> strings.moviesLibrary
+                                }
+
+                                Text(
+                                    text = sectionTitle,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
                                 )
+
+                                if (isFilterOrSearchActive) {
+                                    Text(
+                                        text = strings.clearFilters,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = KrasRedBright,
+                                        modifier = Modifier.clickable { clearAllFilters() }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Full Paged List Grid
+                        if (lazyMovies.itemCount == 0 && lazyMovies.loadState.refresh is LoadState.NotLoading) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = strings.noMoviesFound,
+                                        color = TextSecondary,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        } else {
+                            items(
+                                count = lazyMovies.itemCount,
+                                key = { index -> lazyMovies.peek(index)?.id ?: "mov_$index" }
+                            ) { index ->
+                                val movie = lazyMovies[index]
+                                if (movie != null) {
+                                    MoviePosterCard(
+                                        movie = movie,
+                                        onClick = { onMovieClick(movie) },
+                                        onFavoriteClick = { onToggleFavorite(movie) },
+                                        isFavorite = isFavorite(movie.id)
+                                    )
+                                }
                             }
                         }
 

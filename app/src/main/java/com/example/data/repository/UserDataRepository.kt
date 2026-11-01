@@ -14,6 +14,12 @@ class UserDataRepository(
     val allFavorites: Flow<List<FavoriteEntity>> = favoriteDao.getAllFavorites()
     val watchHistory: Flow<List<WatchHistoryEntity>> = watchHistoryDao.getRecentHistory(15)
 
+    fun getContinueWatching(type: ContentType, limit: Int = 30): Flow<List<WatchHistoryEntity>> =
+        watchHistoryDao.getContinueWatching(type, limit)
+
+    fun getAllContinueWatching(limit: Int = 30): Flow<List<WatchHistoryEntity>> =
+        watchHistoryDao.getAllContinueWatching(limit)
+
     fun isFavoriteFlow(id: String): Flow<Boolean> = favoriteDao.isFavoriteFlow(id)
 
     suspend fun isFavorite(id: String): Boolean = favoriteDao.isFavorite(id)

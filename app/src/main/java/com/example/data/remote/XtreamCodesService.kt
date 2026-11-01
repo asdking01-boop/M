@@ -201,6 +201,8 @@ class XtreamCodesService {
                         var ext = "mp4"
                         var category = ""
                         var rating = "8.0"
+                        var year = ""
+                        var addedTimestamp = 0L
 
                         while (reader.hasNext()) {
                             when (reader.nextName()) {
@@ -211,6 +213,8 @@ class XtreamCodesService {
                                 "rating" -> rating = nextSafeString(reader).ifEmpty { "8.0" }
                                 "category_name" -> category = nextSafeString(reader)
                                 "category_id" -> if (category.isEmpty()) category = "VOD " + nextSafeString(reader) else reader.skipValue()
+                                "year" -> year = nextSafeString(reader)
+                                "added" -> addedTimestamp = parseTimestamp(nextSafeString(reader))
                                 else -> reader.skipValue()
                             }
                         }
@@ -218,6 +222,7 @@ class XtreamCodesService {
 
                         if (streamId.isNotEmpty() || name.isNotEmpty()) {
                             val finalId = streamId.ifEmpty { (totalCount + 1).toString() }
+                            val movieYear = if (year.length >= 4) year.take(4) else "2024"
                             val movie = VodMovieItem(
                                 id = "xtream_mov_${accountId}_$finalId",
                                 accountId = accountId,
@@ -226,8 +231,9 @@ class XtreamCodesService {
                                 streamUrl = "$cleanServer/movie/$user/$pass/$finalId.$ext",
                                 posterUrl = icon,
                                 genre = category.ifEmpty { "Movies" },
-                                year = "2024",
-                                rating = rating.take(3)
+                                year = movieYear,
+                                rating = rating.take(3),
+                                added = addedTimestamp
                             )
                             batch.add(movie)
                             totalCount++
@@ -293,7 +299,9 @@ class XtreamCodesService {
                         var cover = ""
                         var genre = ""
                         var releaseDate = ""
+                        var year = ""
                         var rating = "8.5"
+                        var addedTimestamp = 0L
 
                         while (reader.hasNext()) {
                             when (reader.nextName()) {
@@ -301,9 +309,14 @@ class XtreamCodesService {
                                 "name" -> name = nextSafeString(reader)
                                 "cover" -> cover = nextSafeString(reader)
                                 "genre" -> genre = nextSafeString(reader)
-                                "releaseDate" -> releaseDate = nextSafeString(reader)
+                                "releaseDate", "release_date" -> releaseDate = nextSafeString(reader)
+                                "year" -> year = nextSafeString(reader)
                                 "rating" -> rating = nextSafeString(reader).ifEmpty { "8.5" }
                                 "category_name" -> if (genre.isEmpty()) genre = nextSafeString(reader) else reader.skipValue()
+                                "added", "last_modified" -> {
+                                    val ts = parseTimestamp(nextSafeString(reader))
+                                    if (ts > 0L) addedTimestamp = ts
+                                }
                                 else -> reader.skipValue()
                             }
                         }
@@ -311,7 +324,11 @@ class XtreamCodesService {
 
                         if (seriesId.isNotEmpty() || name.isNotEmpty()) {
                             val finalId = seriesId.ifEmpty { (totalCount + 1).toString() }
-                            val year = if (releaseDate.length >= 4) releaseDate.substring(0, 4) else "2024"
+                            val resolvedYear = when {
+                                year.length >= 4 -> year.take(4)
+                                releaseDate.length >= 4 -> releaseDate.take(4)
+                                else -> "2024"
+                            }
 
                             val series = SeriesItem(
                                 id = "xtream_ser_${accountId}_$finalId",
@@ -320,8 +337,9 @@ class XtreamCodesService {
                                 title = name.ifEmpty { "Series $finalId" },
                                 posterUrl = cover,
                                 genre = genre.ifEmpty { "Series" },
-                                year = year,
-                                rating = rating.take(3)
+                                year = resolvedYear,
+                                rating = rating.take(3),
+                                added = addedTimestamp
                             )
                             batch.add(series)
                             totalCount++
@@ -640,6 +658,29 @@ class XtreamCodesService {
             }
         } catch (_: Exception) {
             ""
+        }
+    }
+
+    private fun parseTimestamp(raw: String): Long {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return 0L
+        val num = trimmed.toLongOrNull()
+        if (num != null && num > 0L) {
+            return if (num < 100_000_000_000L) num * 1000L else num
+        }
+        return try {
+            if (trimmed.length >= 10 && trimmed[4] == '-' && trimmed[7] == '-') {
+                val year = trimmed.substring(0, 4).toInt()
+                val month = trimmed.substring(5, 7).toInt()
+                val day = trimmed.substring(8, 10).toInt()
+                val cal = java.util.Calendar.getInstance()
+                cal.set(year, month - 1, day, 12, 0, 0)
+                cal.timeInMillis
+            } else {
+                0L
+            }
+        } catch (_: Exception) {
+            0L
         }
     }
 }

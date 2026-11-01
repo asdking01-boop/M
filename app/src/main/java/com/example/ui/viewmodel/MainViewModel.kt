@@ -172,20 +172,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Paging 3 Streams (Requirement 4)
-    fun getChannelsPager(category: String, query: String): Flow<PagingData<LiveChannelItem>> {
+    // Paging 3 Streams with comprehensive filters and sort modes
+    fun getChannelsPager(category: String = "", favoritesOnly: Boolean = false, query: String = ""): Flow<PagingData<LiveChannelItem>> {
         val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
-        return iptvRepo.getPagedChannels(accId, category, query).cachedIn(viewModelScope)
+        return iptvRepo.getPagedChannels(accId, category, favoritesOnly, query).cachedIn(viewModelScope)
     }
 
-    fun getMoviesPager(genre: String, query: String): Flow<PagingData<VodMovieItem>> {
+    fun getMoviesPager(
+        genre: String = "",
+        year: String = "",
+        minRating: Double = 0.0,
+        query: String = "",
+        sortMode: String = ""
+    ): Flow<PagingData<VodMovieItem>> {
         val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
-        return iptvRepo.getPagedMovies(accId, genre, query).cachedIn(viewModelScope)
+        return iptvRepo.getPagedMovies(accId, genre, year, minRating, query, sortMode).cachedIn(viewModelScope)
     }
 
-    fun getSeriesPager(genre: String, query: String): Flow<PagingData<SeriesItem>> {
+    fun getSeriesPager(
+        genre: String = "",
+        year: String = "",
+        minRating: Double = 0.0,
+        query: String = "",
+        sortMode: String = ""
+    ): Flow<PagingData<SeriesItem>> {
         val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
-        return iptvRepo.getPagedSeries(accId, genre, query).cachedIn(viewModelScope)
+        return iptvRepo.getPagedSeries(accId, genre, year, minRating, query, sortMode).cachedIn(viewModelScope)
+    }
+
+    // Curated Section Rows (LIMIT 30) for Movies
+    fun getRecentlyAddedMovies(): Flow<List<VodMovieItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getRecentlyAddedMovies(accId, 30)
+    }
+
+    fun getLatestReleaseMovies(): Flow<List<VodMovieItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getLatestReleaseMovies(accId, 30)
+    }
+
+    fun getTopRatedMovies(): Flow<List<VodMovieItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getTopRatedMovies(accId, 30)
+    }
+
+    // Curated Section Rows (LIMIT 30) for Series
+    fun getRecentlyAddedSeries(): Flow<List<SeriesItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getRecentlyAddedSeries(accId, 30)
+    }
+
+    fun getLatestReleaseSeries(): Flow<List<SeriesItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getLatestReleaseSeries(accId, 30)
+    }
+
+    fun getTopRatedSeries(): Flow<List<SeriesItem>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getTopRatedSeries(accId, 30)
+    }
+
+    fun getContinueWatching(type: ContentType): Flow<List<WatchHistoryEntity>> {
+        return userRepo.getContinueWatching(type, 30)
     }
 
     fun getChannelCategories(): Flow<List<String>> {
@@ -198,9 +246,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return iptvRepo.getMovieGenres(accId)
     }
 
+    fun getMovieYears(): Flow<List<String>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getMovieYears(accId)
+    }
+
     fun getSeriesGenres(): Flow<List<String>> {
         val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
         return iptvRepo.getSeriesGenres(accId)
+    }
+
+    fun getSeriesYears(): Flow<List<String>> {
+        val accId = activeAccount.value?.id ?: IptvRepository.DEMO_ACCOUNT_ID
+        return iptvRepo.getSeriesYears(accId)
     }
 
     fun onSplashFinished() {

@@ -112,7 +112,13 @@ class IptvRepository(
                 )
 
                 movieDao.insertBatch(
-                    SampleDataProvider.sampleMovies.map { m ->
+                    SampleDataProvider.sampleMovies.mapIndexed { idx, m ->
+                        // First 3 items are within 10 days to showcase the NEW badge
+                        val addedTime = if (idx < 3) {
+                            System.currentTimeMillis() - (idx * 2L * 86_400_000L)
+                        } else {
+                            System.currentTimeMillis() - ((idx + 10) * 86_400_000L)
+                        }
                         VodMovieItem(
                             id = m.id,
                             accountId = DEMO_ACCOUNT_ID,
@@ -122,13 +128,19 @@ class IptvRepository(
                             posterUrl = m.posterUrl,
                             genre = m.genre,
                             year = m.year,
-                            rating = m.rating
+                            rating = m.rating,
+                            added = addedTime
                         )
                     }
                 )
 
                 seriesDao.insertBatch(
-                    SampleDataProvider.sampleSeries.map { s ->
+                    SampleDataProvider.sampleSeries.mapIndexed { idx, s ->
+                        val addedTime = if (idx < 2) {
+                            System.currentTimeMillis() - (idx * 3L * 86_400_000L)
+                        } else {
+                            System.currentTimeMillis() - ((idx + 12) * 86_400_000L)
+                        }
                         SeriesItem(
                             id = s.id,
                             accountId = DEMO_ACCOUNT_ID,
@@ -137,7 +149,8 @@ class IptvRepository(
                             posterUrl = s.posterUrl,
                             genre = s.genre,
                             year = s.year,
-                            rating = s.rating
+                            rating = s.rating,
+                            added = addedTime
                         )
                     }
                 )
@@ -146,48 +159,79 @@ class IptvRepository(
         }
     }
 
-    fun getPagedChannels(accountId: Long, category: String, query: String): Flow<PagingData<LiveChannelItem>> {
+    fun getPagedChannels(
+        accountId: Long,
+        category: String = "",
+        favoritesOnly: Boolean = false,
+        query: String = ""
+    ): Flow<PagingData<LiveChannelItem>> {
         return Pager(
             config = PagingConfig(pageSize = 50, prefetchDistance = 15, enablePlaceholders = false)
         ) {
-            when {
-                query.isNotBlank() -> channelDao.searchPagedChannels(accountId, query)
-                category.isNotBlank() && category != "All" && category != "الكل" ->
-                    channelDao.getPagedChannelsByCategory(accountId, category)
-                else -> channelDao.getPagedChannels(accountId)
-            }
+            val cleanCat = if (category == "All" || category == "الكل") "" else category
+            channelDao.getFilteredChannels(accountId, cleanCat, favoritesOnly, query)
         }.flow
     }
 
-    fun getPagedMovies(accountId: Long, genre: String, query: String): Flow<PagingData<VodMovieItem>> {
+    fun getPagedMovies(
+        accountId: Long,
+        genre: String = "",
+        year: String = "",
+        minRating: Double = 0.0,
+        query: String = "",
+        sortMode: String = ""
+    ): Flow<PagingData<VodMovieItem>> {
         return Pager(
             config = PagingConfig(pageSize = 50, prefetchDistance = 15, enablePlaceholders = false)
         ) {
-            when {
-                query.isNotBlank() -> movieDao.searchPagedMovies(accountId, query)
-                genre.isNotBlank() && genre != "All" && genre != "الكل" ->
-                    movieDao.getPagedMoviesByGenre(accountId, genre)
-                else -> movieDao.getPagedMovies(accountId)
-            }
+            val cleanGenre = if (genre == "All" || genre == "الكل") "" else genre
+            val cleanYear = if (year == "All" || year == "الكل") "" else year
+            movieDao.getFilteredMovies(accountId, cleanGenre, cleanYear, minRating, query, sortMode)
         }.flow
     }
 
-    fun getPagedSeries(accountId: Long, genre: String, query: String): Flow<PagingData<SeriesItem>> {
+    fun getPagedSeries(
+        accountId: Long,
+        genre: String = "",
+        year: String = "",
+        minRating: Double = 0.0,
+        query: String = "",
+        sortMode: String = ""
+    ): Flow<PagingData<SeriesItem>> {
         return Pager(
             config = PagingConfig(pageSize = 50, prefetchDistance = 15, enablePlaceholders = false)
         ) {
-            when {
-                query.isNotBlank() -> seriesDao.searchPagedSeries(accountId, query)
-                genre.isNotBlank() && genre != "All" && genre != "الكل" ->
-                    seriesDao.getPagedSeriesByGenre(accountId, genre)
-                else -> seriesDao.getPagedSeries(accountId)
-            }
+            val cleanGenre = if (genre == "All" || genre == "الكل") "" else genre
+            val cleanYear = if (year == "All" || year == "الكل") "" else year
+            seriesDao.getFilteredSeries(accountId, cleanGenre, cleanYear, minRating, query, sortMode)
         }.flow
     }
+
+    // Curated Rows (LIMIT 30) for Movies
+    fun getRecentlyAddedMovies(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>> =
+        movieDao.getRecentlyAdded(accountId, limit)
+
+    fun getLatestReleaseMovies(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>> =
+        movieDao.getLatestReleases(accountId, limit)
+
+    fun getTopRatedMovies(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>> =
+        movieDao.getTopRated(accountId, limit)
+
+    // Curated Rows (LIMIT 30) for Series
+    fun getRecentlyAddedSeries(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>> =
+        seriesDao.getRecentlyAdded(accountId, limit)
+
+    fun getLatestReleaseSeries(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>> =
+        seriesDao.getLatestReleases(accountId, limit)
+
+    fun getTopRatedSeries(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>> =
+        seriesDao.getTopRated(accountId, limit)
 
     fun getChannelCategories(accountId: Long): Flow<List<String>> = channelDao.getCategories(accountId)
     fun getMovieGenres(accountId: Long): Flow<List<String>> = movieDao.getGenres(accountId)
+    fun getMovieYears(accountId: Long): Flow<List<String>> = movieDao.getDistinctYears(accountId)
     fun getSeriesGenres(accountId: Long): Flow<List<String>> = seriesDao.getGenres(accountId)
+    fun getSeriesYears(accountId: Long): Flow<List<String>> = seriesDao.getDistinctYears(accountId)
 
     suspend fun getRecentChannels(accountId: Long, limit: Int = 10): List<LiveChannelItem> =
         withContext(Dispatchers.IO) { channelDao.getRecent(accountId, limit) }

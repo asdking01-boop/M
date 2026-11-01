@@ -128,6 +128,18 @@ fun KrasTvApp(
     val channelCategories by viewModel.getChannelCategories().collectAsStateWithLifecycle(emptyList())
     val movieGenres by viewModel.getMovieGenres().collectAsStateWithLifecycle(emptyList())
     val seriesGenres by viewModel.getSeriesGenres().collectAsStateWithLifecycle(emptyList())
+    val movieYears by viewModel.getMovieYears().collectAsStateWithLifecycle(emptyList())
+    val seriesYears by viewModel.getSeriesYears().collectAsStateWithLifecycle(emptyList())
+
+    val recentlyAddedMovies by viewModel.getRecentlyAddedMovies().collectAsStateWithLifecycle(emptyList())
+    val latestReleaseMovies by viewModel.getLatestReleaseMovies().collectAsStateWithLifecycle(emptyList())
+    val topRatedMovies by viewModel.getTopRatedMovies().collectAsStateWithLifecycle(emptyList())
+    val movieContinueWatching by viewModel.getContinueWatching(ContentType.MOVIE).collectAsStateWithLifecycle(emptyList())
+
+    val recentlyAddedSeries by viewModel.getRecentlyAddedSeries().collectAsStateWithLifecycle(emptyList())
+    val latestReleaseSeries by viewModel.getLatestReleaseSeries().collectAsStateWithLifecycle(emptyList())
+    val topRatedSeries by viewModel.getTopRatedSeries().collectAsStateWithLifecycle(emptyList())
+    val seriesContinueWatching by viewModel.getContinueWatching(ContentType.SERIES).collectAsStateWithLifecycle(emptyList())
 
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
@@ -276,7 +288,7 @@ fun KrasTvApp(
                 Screen.LiveTv -> {
                     LiveTvScreen(
                         categories = channelCategories,
-                        getChannelsPager = { cat, q -> viewModel.getChannelsPager(cat, q) },
+                        getChannelsPager = { cat, fav, q -> viewModel.getChannelsPager(cat, fav, q) },
                         onChannelClick = { ch -> viewModel.playChannel(ch) },
                         onToggleFavorite = { ch ->
                             viewModel.toggleFavorite(
@@ -295,7 +307,14 @@ fun KrasTvApp(
                 Screen.Movies -> {
                     MoviesScreen(
                         genres = movieGenres,
-                        getMoviesPager = { genre, q -> viewModel.getMoviesPager(genre, q) },
+                        years = movieYears,
+                        recentlyAdded = recentlyAddedMovies,
+                        latestReleases = latestReleaseMovies,
+                        topRated = topRatedMovies,
+                        continueWatching = movieContinueWatching,
+                        getMoviesPager = { genre, year, minRating, q, sortMode ->
+                            viewModel.getMoviesPager(genre, year, minRating, q, sortMode)
+                        },
                         onMovieClick = { mov -> viewModel.showMovieDetails(mov) },
                         onToggleFavorite = { mov ->
                             viewModel.toggleFavorite(
@@ -307,6 +326,7 @@ fun KrasTvApp(
                                 streamUrl = mov.streamUrl
                             )
                         },
+                        onResumeHistory = { item -> viewModel.resumeHistory(item) },
                         isFavorite = { id -> viewModel.isFavorite(id) }
                     )
                 }
@@ -314,8 +334,16 @@ fun KrasTvApp(
                 Screen.Series -> {
                     SeriesScreen(
                         genres = seriesGenres,
-                        getSeriesPager = { genre, q -> viewModel.getSeriesPager(genre, q) },
-                        onSeriesClick = { ser -> viewModel.showSeriesDetails(ser) }
+                        years = seriesYears,
+                        recentlyAdded = recentlyAddedSeries,
+                        latestReleases = latestReleaseSeries,
+                        topRated = topRatedSeries,
+                        continueWatching = seriesContinueWatching,
+                        getSeriesPager = { genre, year, minRating, q, sortMode ->
+                            viewModel.getSeriesPager(genre, year, minRating, q, sortMode)
+                        },
+                        onSeriesClick = { ser -> viewModel.showSeriesDetails(ser) },
+                        onResumeHistory = { item -> viewModel.resumeHistory(item) }
                     )
                 }
 
@@ -385,9 +413,9 @@ fun KrasTvApp(
                     SearchScreen(
                         searchQuery = searchQuery,
                         onQueryChange = { q -> viewModel.onSearchQueryChange(q) },
-                        getChannelsPager = { cat, q -> viewModel.getChannelsPager(cat, q) },
-                        getMoviesPager = { genre, q -> viewModel.getMoviesPager(genre, q) },
-                        getSeriesPager = { genre, q -> viewModel.getSeriesPager(genre, q) },
+                        getChannelsPager = { cat, q -> viewModel.getChannelsPager(cat, false, q) },
+                        getMoviesPager = { genre, q -> viewModel.getMoviesPager(genre = genre, query = q) },
+                        getSeriesPager = { genre, q -> viewModel.getSeriesPager(genre = genre, query = q) },
                         onChannelClick = { ch -> viewModel.playChannel(ch) },
                         onMovieClick = { mov -> viewModel.showMovieDetails(mov) },
                         onSeriesClick = { ser -> viewModel.showSeriesDetails(ser) },

@@ -21,12 +21,14 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material3.Icon
@@ -76,8 +78,8 @@ fun KrasBottomBar(
             NavItemData(Screen.LiveTv, { it.navLive }, Icons.Filled.LiveTv, Icons.Outlined.LiveTv, "nav_live"),
             NavItemData(Screen.Movies, { it.navMovies }, Icons.Filled.Movie, Icons.Outlined.Movie, "nav_movies"),
             NavItemData(Screen.Series, { it.navSeries }, Icons.Filled.Tv, Icons.Outlined.Tv, "nav_series"),
-            NavItemData(Screen.Favorites, { it.navFavorites }, Icons.Filled.Bookmark, Icons.Outlined.BookmarkBorder, "nav_favorites"),
-            NavItemData(Screen.Settings, { it.navSettings }, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
+            NavItemData(Screen.Search, { it.searchNav }, Icons.Filled.Search, Icons.Outlined.Search, "nav_search"),
+            NavItemData(Screen.Favorites, { it.navFavorites }, Icons.Filled.Bookmark, Icons.Outlined.BookmarkBorder, "nav_favorites")
         )
     }
 

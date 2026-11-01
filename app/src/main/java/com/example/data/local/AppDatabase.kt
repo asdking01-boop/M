@@ -80,6 +80,22 @@ interface ChannelDao {
     @Query("SELECT * FROM live_channels WHERE accountId = :accountId AND (name LIKE '%' || :query || '%' OR category LIKE '%' || :query || '%') ORDER BY id ASC")
     fun searchPagedChannels(accountId: Long, query: String): PagingSource<Int, LiveChannelItem>
 
+    @Query("""
+        SELECT c.* FROM live_channels c
+        LEFT JOIN favorites f ON f.id = c.id AND f.type = 'LIVE_CHANNEL'
+        WHERE c.accountId = :accountId
+          AND (:category IS NULL OR :category = '' OR c.category = :category)
+          AND (:query IS NULL OR :query = '' OR c.name LIKE '%' || :query || '%')
+          AND (:favoritesOnly = 0 OR f.id IS NOT NULL)
+        ORDER BY c.name ASC
+    """)
+    fun getFilteredChannels(
+        accountId: Long,
+        category: String?,
+        favoritesOnly: Boolean,
+        query: String?
+    ): PagingSource<Int, LiveChannelItem>
+
     @Query("SELECT DISTINCT category FROM live_channels WHERE accountId = :accountId AND category != '' ORDER BY category ASC")
     fun getCategories(accountId: Long): Flow<List<String>>
 
@@ -110,8 +126,42 @@ interface MovieDao {
     @Query("SELECT * FROM vod_movies WHERE accountId = :accountId AND (title LIKE '%' || :query || '%' OR genre LIKE '%' || :query || '%') ORDER BY id ASC")
     fun searchPagedMovies(accountId: Long, query: String): PagingSource<Int, VodMovieItem>
 
+    @Query("""
+        SELECT * FROM vod_movies 
+        WHERE accountId = :accountId
+          AND (:genre IS NULL OR :genre = '' OR genre LIKE '%' || :genre || '%')
+          AND (:year IS NULL OR :year = '' OR year = :year)
+          AND (:minRating <= 0.0 OR CAST(rating AS REAL) >= :minRating)
+          AND (:query IS NULL OR :query = '' OR title LIKE '%' || :query || '%')
+        ORDER BY 
+          CASE WHEN :sortMode = 'added' THEN added END DESC,
+          CASE WHEN :sortMode = 'year' THEN year END DESC,
+          CASE WHEN :sortMode = 'rating' THEN CAST(rating AS REAL) END DESC,
+          title ASC
+    """)
+    fun getFilteredMovies(
+        accountId: Long,
+        genre: String?,
+        year: String?,
+        minRating: Double,
+        query: String?,
+        sortMode: String
+    ): PagingSource<Int, VodMovieItem>
+
+    @Query("SELECT * FROM vod_movies WHERE accountId = :accountId ORDER BY added DESC LIMIT :limit")
+    fun getRecentlyAdded(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>>
+
+    @Query("SELECT * FROM vod_movies WHERE accountId = :accountId AND year != '' ORDER BY year DESC, added DESC LIMIT :limit")
+    fun getLatestReleases(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>>
+
+    @Query("SELECT * FROM vod_movies WHERE accountId = :accountId AND rating != '' AND rating != '0' ORDER BY CAST(rating AS REAL) DESC LIMIT :limit")
+    fun getTopRated(accountId: Long, limit: Int = 30): Flow<List<VodMovieItem>>
+
     @Query("SELECT DISTINCT genre FROM vod_movies WHERE accountId = :accountId AND genre != '' ORDER BY genre ASC")
     fun getGenres(accountId: Long): Flow<List<String>>
+
+    @Query("SELECT DISTINCT year FROM vod_movies WHERE accountId = :accountId AND year != '' ORDER BY year DESC LIMIT 25")
+    fun getDistinctYears(accountId: Long): Flow<List<String>>
 
     @Query("SELECT COUNT(*) FROM vod_movies WHERE accountId = :accountId")
     suspend fun getCount(accountId: Long): Int
@@ -140,8 +190,42 @@ interface SeriesDao {
     @Query("SELECT * FROM series_items WHERE accountId = :accountId AND (title LIKE '%' || :query || '%' OR genre LIKE '%' || :query || '%') ORDER BY id ASC")
     fun searchPagedSeries(accountId: Long, query: String): PagingSource<Int, SeriesItem>
 
+    @Query("""
+        SELECT * FROM series_items 
+        WHERE accountId = :accountId
+          AND (:genre IS NULL OR :genre = '' OR genre LIKE '%' || :genre || '%')
+          AND (:year IS NULL OR :year = '' OR year = :year)
+          AND (:minRating <= 0.0 OR CAST(rating AS REAL) >= :minRating)
+          AND (:query IS NULL OR :query = '' OR title LIKE '%' || :query || '%')
+        ORDER BY 
+          CASE WHEN :sortMode = 'added' THEN added END DESC,
+          CASE WHEN :sortMode = 'year' THEN year END DESC,
+          CASE WHEN :sortMode = 'rating' THEN CAST(rating AS REAL) END DESC,
+          title ASC
+    """)
+    fun getFilteredSeries(
+        accountId: Long,
+        genre: String?,
+        year: String?,
+        minRating: Double,
+        query: String?,
+        sortMode: String
+    ): PagingSource<Int, SeriesItem>
+
+    @Query("SELECT * FROM series_items WHERE accountId = :accountId ORDER BY added DESC LIMIT :limit")
+    fun getRecentlyAdded(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>>
+
+    @Query("SELECT * FROM series_items WHERE accountId = :accountId AND year != '' ORDER BY year DESC, added DESC LIMIT :limit")
+    fun getLatestReleases(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>>
+
+    @Query("SELECT * FROM series_items WHERE accountId = :accountId AND rating != '' AND rating != '0' ORDER BY CAST(rating AS REAL) DESC LIMIT :limit")
+    fun getTopRated(accountId: Long, limit: Int = 30): Flow<List<SeriesItem>>
+
     @Query("SELECT DISTINCT genre FROM series_items WHERE accountId = :accountId AND genre != '' ORDER BY genre ASC")
     fun getGenres(accountId: Long): Flow<List<String>>
+
+    @Query("SELECT DISTINCT year FROM series_items WHERE accountId = :accountId AND year != '' ORDER BY year DESC LIMIT 25")
+    fun getDistinctYears(accountId: Long): Flow<List<String>>
 
     @Query("SELECT COUNT(*) FROM series_items WHERE accountId = :accountId")
     suspend fun getCount(accountId: Long): Int
@@ -185,6 +269,12 @@ interface WatchHistoryDao {
     @Query("SELECT * FROM watch_history ORDER BY lastPlayedAt DESC LIMIT :limit")
     fun getRecentHistory(limit: Int): Flow<List<WatchHistoryEntity>>
 
+    @Query("SELECT * FROM watch_history WHERE type = :type AND positionMs > 0 AND (durationMs == 0 OR (positionMs * 1.0 / durationMs) < 0.95) ORDER BY lastPlayedAt DESC LIMIT :limit")
+    fun getContinueWatching(type: ContentType, limit: Int = 30): Flow<List<WatchHistoryEntity>>
+
+    @Query("SELECT * FROM watch_history WHERE positionMs > 0 AND (durationMs == 0 OR (positionMs * 1.0 / durationMs) < 0.95) ORDER BY lastPlayedAt DESC LIMIT :limit")
+    fun getAllContinueWatching(limit: Int = 30): Flow<List<WatchHistoryEntity>>
+
     @Query("SELECT * FROM watch_history WHERE contentId = :contentId LIMIT 1")
     suspend fun getHistory(contentId: String): WatchHistoryEntity?
 
@@ -207,7 +297,7 @@ interface WatchHistoryDao {
         VodMovieItem::class,
         SeriesItem::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

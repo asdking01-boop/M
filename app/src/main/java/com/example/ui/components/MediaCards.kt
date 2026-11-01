@@ -79,6 +79,7 @@ fun MoviePosterCard(
         rating = movie.rating,
         genre = movie.categoryName,
         year = movie.year,
+        isNew = movie.isNew,
         onClick = onClick,
         onFavoriteClick = onFavoriteClick,
         isFavorite = isFavorite,
@@ -94,12 +95,14 @@ fun MoviePosterCard(
     isFavorite: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val isMovieNew = movie.added > 0 && (System.currentTimeMillis() - movie.added) <= 10L * 24L * 60L * 60L * 1000L
     MoviePosterCardInternal(
         title = movie.title,
         posterUrl = movie.posterUrl,
         rating = movie.rating,
         genre = movie.genre,
         year = movie.year,
+        isNew = isMovieNew,
         onClick = onClick,
         onFavoriteClick = onFavoriteClick,
         isFavorite = isFavorite,
@@ -114,6 +117,7 @@ private fun MoviePosterCardInternal(
     rating: String,
     genre: String,
     year: String,
+    isNew: Boolean = false,
     onClick: () -> Unit,
     onFavoriteClick: (() -> Unit)?,
     isFavorite: Boolean,
@@ -230,6 +234,31 @@ private fun MoviePosterCardInternal(
                         )
                     )
             )
+
+            // "NEW" badge on items added in the last 10 days
+            if (isNew) {
+                val strings = LocalKrasStrings.current
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 6.dp, bottom = 6.dp)
+                        .glassBackground(
+                            shape = RoundedCornerShape(6.dp),
+                            backgroundColor = KrasRed.copy(alpha = 0.92f),
+                            borderColor = KrasRedBright,
+                            hasRedGlow = true,
+                            elevation = 4.dp
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = strings.badgeNew,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -278,6 +307,7 @@ fun SeriesPosterCard(
         rating = series.rating,
         genre = series.genre.ifEmpty { series.categoryName },
         seasonBadge = if (series.episodeCount > 0) "${series.episodeCount} Ep" else "Series",
+        isNew = series.isNew,
         onClick = onClick,
         modifier = modifier
     )
@@ -295,6 +325,7 @@ fun SeriesPosterCard(
         rating = series.rating,
         genre = series.genre,
         seasonBadge = "${series.seasons.size} S",
+        isNew = false,
         onClick = onClick,
         modifier = modifier
     )
@@ -307,10 +338,12 @@ private fun SeriesPosterCardInternal(
     rating: String,
     genre: String,
     seasonBadge: String,
+    isNew: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier
 ) {
     val context = LocalContext.current
+    val strings = LocalKrasStrings.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -390,6 +423,30 @@ private fun SeriesPosterCardInternal(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            // "NEW" badge on series added in the last 10 days
+            if (isNew) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 6.dp, bottom = 6.dp)
+                        .glassBackground(
+                            shape = RoundedCornerShape(6.dp),
+                            backgroundColor = KrasRed.copy(alpha = 0.92f),
+                            borderColor = KrasRedBright,
+                            hasRedGlow = true,
+                            elevation = 4.dp
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = strings.badgeNew,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                }
             }
         }
 

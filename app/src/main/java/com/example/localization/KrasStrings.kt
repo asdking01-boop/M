@@ -156,7 +156,22 @@ data class KrasStrings(
     val noChannelsFound: String = "لا توجد قنوات مطابقة",
     val noMoviesFound: String = "لا توجد أفلام مطابقة",
     val noSeriesFound: String = "لا توجد مسلسلات مطابقة",
-    val series: String = "مسلسلات"
+    val series: String = "مسلسلات",
+    val recentlyAdded: String = "أضيف حديثاً",
+    val latestReleases: String = "أحدث الإصدارات",
+    val topRated: String = "الأعلى تقييماً",
+    val seeAll: String = "عرض الكل",
+    val clearFilters: String = "مسح الفلاتر",
+    val badgeNew: String = "جديد",
+    val favoritesOnly: String = "المفضلة فقط",
+    val filterCategory: String = "التصنيف",
+    val filterYear: String = "السنة",
+    val filterRating: String = "التقييم",
+    val allYears: String = "كل السنوات",
+    val allRatings: String = "كل التقييمات",
+    val ratingAbove8: String = "8+ ★",
+    val ratingAbove7: String = "7+ ★",
+    val searchNav: String = "بحث"
 )
 
 val ArabicStrings = KrasStrings(
@@ -403,7 +418,22 @@ val EnglishStrings = KrasStrings(
     noChannelsFound = "No channels found",
     noMoviesFound = "No movies found",
     noSeriesFound = "No series found",
-    series = "Series"
+    series = "Series",
+    recentlyAdded = "New / Recently Added",
+    latestReleases = "Latest Releases",
+    topRated = "Top Rated",
+    seeAll = "See all",
+    clearFilters = "Clear filters",
+    badgeNew = "NEW",
+    favoritesOnly = "Favorites Only",
+    filterCategory = "Category",
+    filterYear = "Year",
+    filterRating = "Rating",
+    allYears = "All Years",
+    allRatings = "All Ratings",
+    ratingAbove8 = "8+ ★",
+    ratingAbove7 = "7+ ★",
+    searchNav = "Search"
 )
 
 val LocalKrasStrings = compositionLocalOf { ArabicStrings }
