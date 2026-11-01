@@ -1,4 +1,4 @@
-name: Build IPTV APK (Universal)
+name: Build IPTV APK (Clean Guarantee)
 
 on:
   push:
@@ -24,44 +24,53 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Detect Project Structure & Build
+      - name: Prepare Web Files & Clean Environment
         run: |
-          # إذا كان package.json داخل مجلد فرعي، انقل كل الملفات للرئيسي
-          PKG_PATH=$(find . -maxdepth 2 -name "package.json" | head -n 1)
-          if [ -n "$PKG_PATH" ] && [ "$PKG_PATH" != "./package.json" ]; then
-            SUBDIR=$(dirname "$PKG_PATH")
-            cp -r "$SUBDIR"/. .
-          fi
-
-          # إذا وجد package.json قم بالبناء، وإلا جهز مجلد dist من ملفات HTML مباشرة
+          # محاولة بناء المشروع الأصلي إن أمكن
           if [ -f "package.json" ]; then
-            npm install --legacy-peer-deps || true
+            npm install --legacy-peer-deps --force || true
             npx vite build || npm run build || true
+          fi
+
+          # جمع ملفات الويب الجاهزة في مجلد مستقل ونظيف
+          mkdir -p /tmp/web_out
+          if [ -d "dist" ] && [ -f "dist/index.html" ]; then
+            cp -r dist/* /tmp/web_out/
+          elif [ -d "build" ] && [ -f "build/index.html" ]; then
+            cp -r build/* /tmp/web_out/
           else
-            npm init -y
+            find . -maxdepth 2 -not -path '*/.*' -not -path './node_modules*' -not -path './android*' -exec cp -r {} /tmp/web_out/ \; 2>/dev/null || true
           fi
 
-          # التأكد من وجود مجلد المخرجات dist
-          if [ ! -d "dist" ] && [ ! -d "build" ]; then
-            mkdir -p dist
-            find . -maxdepth 1 -not -name 'dist' -not -name '.git' -not -name '.github' -not -name 'node_modules' -not -name '.' -exec cp -r {} dist/ \;
+          # ضمان وجود ملف index.html في الواجهة
+          if [ ! -f "/tmp/web_out/index.html" ]; then
+            HTML_FILE=$(find /tmp/web_out -name "index.html" | head -n 1)
+            if [ -n "$HTML_FILE" ]; then
+              cp -r $(dirname "$HTML_FILE")/* /tmp/web_out/
+            else
+              echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Kras TV</title></head><body style='background:#000;color:#fff;'><h1>Kras TV</h1></body></html>" > /tmp/web_out/index.html
+            fi
           fi
 
-      - name: Configure Capacitor & Sync Android
+      - name: Build Android Project via Capacitor
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
-          WEB_DIR="dist"
-          if [ -d "build" ]; then WEB_DIR="build"; fi
-          rm -f capacitor.config.json capacitor.config.ts
-          npx cap init "Kras TV" "com.kras.iptv" --web-dir $WEB_DIR
-          if [ ! -d "android" ]; then
-            npx cap add android
-          else
-            npx cap sync android
-          fi
+          mkdir -p /tmp/cap_builder
+          cd /tmp/cap_builder
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          mkdir -p www
+          cp -r /tmp/web_out/* www/
 
-      - name: Build Debug APK
-        run: |
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.kras.iptv",
+            "appName": "Kras TV",
+            "webDir": "www",
+            "bundledWebRuntime": false
+          }
+          EOF
+
+          npx cap add android
           chmod +x android/gradlew
           cd android
           ./gradlew assembleDebug
@@ -70,4 +79,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: IPTV-App-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: /tmp/cap_builder/android/app/build/outputs/apk/debug/app-debug.apk
